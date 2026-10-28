@@ -20,6 +20,11 @@ export const CompanionMessageKind = Object.freeze({
   CONFIG: 'config',
   BALANCE: 'balance',
   SAY: 'say',
+  // Daemon -> helper: the clip to play. Helper -> daemon: input and the end
+  // of a clip's pass, so the daemon decides every animation.
+  PLAY: 'play',
+  INPUT: 'input',
+  PASS: 'pass',
   SETTINGS: 'settings',
   PING: 'ping',
   PONG: 'pong',

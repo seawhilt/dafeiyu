@@ -10,6 +10,7 @@ import { assertCompanionMessage, CompanionMessageKind, createMessage } from './p
 import { isProviderId, ProviderHub } from './provider-hub.js'
 import { applyBubbleText, sanitizeBubbleText, takeLegacyBubbleText } from './bubble-text.js'
 import { codexPetsRoot } from './characters.js'
+import { createPetDirector } from './pet-director.js'
 import { createPetWindow } from './pet-window.js'
 import { characterPreview, createSettingsRoutes, openInBrowser, settingsPage } from './settings-routes.js'
 import { createUsagePoller, USAGE_AFTER_TURN_MS, USAGE_POLL_MS } from './usage-poller.js'
@@ -159,6 +160,8 @@ export async function startDaemon({
     home: paths.home,
     petsRoot,
     onSettingsChange,
+    onInput: (report) => director.input(report),
+    onPass: (report) => director.passEnded(report.clip),
     onClosed() {
       // "本次关闭" ends this run; the next hook or DSH start brings it back.
       setTimeout(() => void close('user-closed'), CLOSE_GRACE_MS).unref?.()
@@ -172,20 +175,27 @@ export async function startDaemon({
     if (id === settings.character || !helper.hasCharacter(id)) return false
     persist({ character: id })
     helper.restart()
+    director.setManifest(helper.manifest())
     hub.replay()
     return true
+  }
+  // Decides every animation; the helper only renders what it is told.
+  const director = createPetDirector({ manifest: helper.manifest(), send: (message) => helper.send(message) })
+  const toPet = (message) => {
+    director.observe(message)
+    helper.send(message)
   }
   whisper = new WhisperScheduler({
     level: settings.whisperLevel,
     lines: whisperLines(),
-    say: (message) => helper.send(message),
+    say: toPet,
     activeProvider: () => hub.active,
     usage: () => (hub.active === 'claude' ? claudeUsage : undefined),
   })
   hub = new ProviderHub({
     send: (message) => {
       whisper.observe(message)
-      helper.send(applyBubbleText(message, settings.bubbleText))
+      toPet(applyBubbleText(message, settings.bubbleText))
     },
     displaySettings: () => ({ ...displaySettingsOf(settings), characters: helper.characters(), character: settings.character }),
     preferred: settings.provider,
@@ -355,6 +365,7 @@ export async function startDaemon({
     clearInterval(availabilityTimer)
     usagePoller.stop()
     whisper.stop()
+    director.stop()
     helper.stop(reason)
     await server.close()
     if (readRuntime(paths)?.pid === process.pid) rmSync(paths.runtime, { force: true })

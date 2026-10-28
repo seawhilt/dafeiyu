@@ -56,6 +56,7 @@ const snapshotMessageKinds = new Set([
   CompanionMessageKind.TASKS,
   CompanionMessageKind.CONFIG,
   CompanionMessageKind.BALANCE,
+  CompanionMessageKind.PLAY,
 ])
 const coalescibleMessageKinds = new Set([
   ...snapshotMessageKinds,
@@ -625,6 +626,7 @@ export class HelperProcess {
     if (message.kind === CompanionMessageKind.TASKS) this.snapshot.set('tasks', encodeMessage(message))
     if (message.kind === CompanionMessageKind.CONFIG) this.snapshot.set('config', encodeMessage(message))
     if (message.kind === CompanionMessageKind.BALANCE) this.snapshot.set('balance', encodeMessage(message))
+    if (message.kind === CompanionMessageKind.PLAY) this.snapshot.set('play', encodeMessage(message))
   }
 
   #flushSnapshot() {
@@ -702,6 +704,14 @@ export class HelperProcess {
       }
       if (reply?.protocolVersion === 1 && reply.kind === CompanionMessageKind.SETTINGS) {
         this.options.onSettingsChange?.(reply)
+        return
+      }
+      if (reply?.protocolVersion === 1 && reply.kind === CompanionMessageKind.INPUT) {
+        this.options.onInput?.(reply)
+        return
+      }
+      if (reply?.protocolVersion === 1 && reply.kind === CompanionMessageKind.PASS) {
+        this.options.onPass?.(reply)
         return
       }
     } catch {
