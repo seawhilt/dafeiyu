@@ -691,7 +691,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 pixmap = self.sheet_pixmap.copy(int(column) * width, int(row) * height, width, height)
             else:
                 pixmap = QPixmap()
-                if not pixmap.loadFromData(self._frame_data(frame), "WEBP"):
+                image_format = "PNG" if frame.lower().endswith(".png") else "WEBP"
+                if not pixmap.loadFromData(self._frame_data(frame), image_format):
                     raise RuntimeError(f"Unable to load BigFish frame: {frame}")
             self.decoded_frames[frame] = pixmap
             while len(self.decoded_frames) > DECODED_FRAME_CACHE:

@@ -376,7 +376,7 @@ export async function startDaemon({
         if (!helper.hasCharacter(id)) throw new HttpError(404, 'unknown character')
         const bytes = characterPreview(id, petsRoot)
         if (!bytes) throw new HttpError(404, 'no preview')
-        return { contentType: 'image/webp', bytes }
+        return { contentType: id.startsWith('skin:') ? 'image/png' : 'image/webp', bytes }
       },
     },
     logger,

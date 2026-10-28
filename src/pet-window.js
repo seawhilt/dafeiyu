@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { codexPetDir, listCharacters, prepareCharacterAssets } from './characters.js'
+import { codexPetDir, isSkin, listCharacters, prepareCharacterAssets, skinDir } from './characters.js'
 
 const packageAssets = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'assets')
 const SHEET_FILE = 'spritesheet.webp'
@@ -34,8 +34,8 @@ export function createPetWindow({
     if (id === 'whale') return undefined
     let mtime
     try {
-      const directory = codexPetDir(id, petsRoot)
-      mtime = directory ? statSync(join(directory, SHEET_FILE)).mtimeMs : undefined
+      const directory = isSkin(id) ? skinDir(id) : codexPetDir(id, petsRoot)
+      mtime = directory ? statSync(join(directory, isSkin(id) ? 'pet_stand.png' : SHEET_FILE)).mtimeMs : undefined
     } catch {}
     const cached = prepared.get(id)
     if (cached && mtime !== undefined && cached.mtime === mtime) return cached.root

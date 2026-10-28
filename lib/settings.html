@@ -194,7 +194,7 @@
         <button class="primary" type="button" id="petdex-install">安装</button>
         <button type="button" id="characters-refresh">刷新</button>
       </div>
-      <p class="hint">到 <a href="https://petdex.dev/collections" target="_blank" rel="noopener noreferrer">petdex.dev</a> 挑一只宠物，把它的名字或网页链接粘贴到上面再点「安装」。用 <code>npx codex-pets add</code> 装的宠物点「刷新」即可出现（codex-pets.net 在国内需要代理）。也可以在桌宠右键「形象」里切换。</p>
+      <p class="hint">内置皮肤可以直接点击切换；也可以到 <a href="https://petdex.dev/collections" target="_blank" rel="noopener noreferrer">petdex.dev</a> 挑一只宠物，把它的名字或网页链接粘贴到上面再点「安装」。用 <code>npx codex-pets add</code> 装的宠物点「刷新」即可出现。也可以在桌宠右键「形象」里切换。</p>
     </div>
 
     <h2>气泡文案</h2>
@@ -497,9 +497,9 @@ async function renderCharacters() {
     const name = document.createElement('span')
     name.textContent = item.name
     const source = document.createElement('small')
-    source.textContent = item.id === data.current ? '当前' : item.source === 'builtin' ? '内置' : 'codex-pets'
+    source.textContent = item.id === data.current ? '当前' : item.source === 'builtin' ? '内置' : item.source === 'skin' ? '皮肤' : 'codex-pets'
     let art
-    if (item.source === 'builtin') {
+    if (item.source === 'builtin' || item.source === 'skin') {
       art = document.createElement('img')
       art.alt = item.name
       blobUrl(`/characters/preview?id=${encodeURIComponent(item.id)}`).then((url) => { if (url) art.src = url }).catch(() => {})

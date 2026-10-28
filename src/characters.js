@@ -1,6 +1,7 @@
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // Characters the pet can wear. The built-in whale-tail maid ships with the
 // package; codex-pets packs (https://codex-pets.net, installed with
@@ -12,6 +13,34 @@ export const BUILTIN_CHARACTER = Object.freeze({ id: 'whale', name: '鲸尾女�
 const PET_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 const SHEET_FILE = 'spritesheet.webp'
 const MAX_SHEET_BYTES = 32 * 1024 * 1024
+const SKIN_ROOT = fileURLToPath(new URL('../assets/skins/', import.meta.url))
+const SKINS = Object.freeze([
+  ['basin', '饭盆头'],
+  ['beret', '贝雷帽'],
+  ['claude', 'Claude'],
+  ['maid', '女仆装'],
+  ['winter_blue', '冬日蓝'],
+  ['winter_white', '冬日白'],
+])
+const SKIN_FRAME = Object.freeze({ width: 450, height: 600 })
+const LOOPING_SKIN_CLIPS = new Set(['idle', 'thinking', 'working', 'review', 'running_right', 'attention', 'tail', 'dragging'])
+const SKIN_EMOTIONS = Object.freeze({
+  idle: 'pet_stand.png',
+  thinking: 'pet_face_confused.png',
+  working: 'pet_face_happy.png',
+  review: 'pet_face_confused.png',
+  running_right: 'pet_stand.png',
+  attention: 'pet_face_surprised.png',
+  success: 'pet_face_happy.png',
+  error: 'pet_face_sad.png',
+  wave: 'pet_face_shy.png',
+  jump: 'pet_face_surprised.png',
+  head_pat: 'pet_face_shy.png',
+  poke: 'pet_face_angry.png',
+  tail: 'pet_stand.png',
+  dragging: 'pet_stand.png',
+  dragging_release: 'pet_face_surprised.png',
+})
 
 // Codex V1 atlas: 8 columns of 192x208 cells, one state per row.
 const CELL = Object.freeze({ width: 192, height: 208 })
@@ -60,8 +89,60 @@ export function listCodexPets(root = codexPetsRoot()) {
   return pets.sort((a, b) => a.id.localeCompare(b.id))
 }
 
-export function listCharacters(root = codexPetsRoot()) {
-  return [BUILTIN_CHARACTER, ...listCodexPets(root)]
+export function listCharacters(root = codexPetsRoot(), { includeSkins = root === codexPetsRoot() } = {}) {
+  const skins = includeSkins ? SKINS.filter(([id]) => {
+    try { return statSync(skinDirectory(id)).isDirectory() } catch { return false }
+  }).map(([id, name]) => ({ id: `skin:${id}`, name, source: 'skin' })) : []
+  return [BUILTIN_CHARACTER, ...skins, ...listCodexPets(root)]
+}
+
+function skinDirectory(id) {
+  return join(SKIN_ROOT, id)
+}
+
+/** Directory for a bundled `skin:<id>` character. */
+export function skinDir(characterId) {
+  const match = /^skin:([a-z0-9_]+)$/u.exec(characterId ?? '')
+  return match && SKINS.some(([id]) => id === match[1]) ? skinDirectory(match[1]) : undefined
+}
+
+export function isSkin(characterId) {
+  return skinDir(characterId) !== undefined
+}
+
+function skinManifest(id) {
+  const clips = Object.fromEntries(Object.entries(SKIN_EMOTIONS).map(([clip, file]) => [clip, {
+    frames: [file], frameMs: 1000, loop: LOOPING_SKIN_CLIPS.has(clip),
+  }]))
+  const sequenceDir = join(skinDirectory(id), 'seq')
+  try {
+    const sequence = readdirSync(sequenceDir).filter((file) => /^seq_\d+\.webp$/u.test(file)).sort()
+    if (sequence.length > 0) {
+      clips.idle = { frames: sequence.map((file) => `seq/${file}`), frameMs: 100, loop: true }
+    }
+  } catch {}
+  const label = SKINS.find(([skinId]) => skinId === id)?.[1] ?? id
+  return {
+    formatVersion: 1,
+    characterId: `skin:${id}`,
+    baseSize: SKIN_FRAME.width,
+    maxFrameWidth: SKIN_FRAME.width,
+    maxFrameHeight: SKIN_FRAME.height,
+    maxClipWidth: SKIN_FRAME.width,
+    pixelScale: 0.85,
+    bubbleHeadroom: 0,
+    clips,
+    stateMap: {
+      IDLE: 'idle', THINKING: 'thinking', WORKING: 'working', WAITING: 'attention',
+      SUCCESS: 'success', ERROR: 'error', DISCONNECTED: 'idle',
+    },
+    workingActivityMap: { searching: 'review', commanding: 'running_right', editing: 'working', testing: 'review', 'using-tool': 'working' },
+    loopVariants: { thinking: ['thinking', 'review'], working: ['working', 'review', 'running_right'] },
+    idleMicroClips: ['wave', 'jump'],
+    idleMicroIntervalsMs: { quiet: [20000, 40000], normal: [8000, 15000], lively: [3000, 6000] },
+    interactionCooldownMs: 1200,
+    actionMenu: [{ label: '动作', items: [['害羞', 'wave', `${label}～`], ['惊喜', 'jump', '哇！']] }],
+  }
 }
 
 /** The pack directory for a `codex:<id>` character, or undefined. */
@@ -144,6 +225,21 @@ export function codexManifest(displayName) {
  * home and return its path; the built-in character needs none.
  */
 export function prepareCharacterAssets(characterId, { home, root = codexPetsRoot() }) {
+  const bundledSkinDir = skinDir(characterId)
+  if (bundledSkinDir) {
+    const id = characterId.slice('skin:'.length)
+    const target = join(home, 'characters', `skin-${id}`)
+    const petTarget = join(target, 'pet')
+    mkdirSync(join(petTarget, 'seq'), { recursive: true })
+    for (const file of Object.values(SKIN_EMOTIONS)) copyFileSync(join(bundledSkinDir, file), join(petTarget, file))
+    try {
+      for (const file of readdirSync(join(bundledSkinDir, 'seq'))) {
+        if (/^seq_\d+\.webp$/u.test(file)) copyFileSync(join(bundledSkinDir, 'seq', file), join(petTarget, 'seq', file))
+      }
+    } catch {}
+    writeFileSync(join(target, 'pet-manifest.json'), `${JSON.stringify(skinManifest(id), null, 2)}\n`)
+    return target
+  }
   const dir = codexPetDir(characterId, root)
   if (!dir) return undefined
   const pack = JSON.parse(readFileSync(join(dir, 'pet.json'), 'utf8'))
@@ -176,6 +272,13 @@ export function codexSheet(characterId, root = codexPetsRoot()) {
   const bytes = readFileSync(file)
   sheetCache.set(file, { mtime, bytes })
   return bytes
+}
+
+/** Preview image for a bundled skin. */
+export function skinPreview(characterId) {
+  const dir = skinDir(characterId)
+  if (!dir) return undefined
+  return readFileSync(join(dir, 'pet_stand.png'))
 }
 
 export const CODEX_PREVIEW = Object.freeze({ cell: CELL, columns: FRAMES.idle, row: ROWS.idle, frameMs: FRAME_MS })

@@ -32,6 +32,18 @@ They remain subject to the upstream MIT license, bundled verbatim as
 given; the "dsh-pet" name and its project identity belong to their respective
 owners.
 
+## User-provided skins
+
+The six alternate outfits under `assets/skins/` were supplied in the project
+workspace and adapted for the desktop pet. Their image license is separate from
+the MIT-licensed source code: the supplied v0.9.5 release notes state that the
+character art is not covered by MIT and point to the source project's
+[license](https://github.com/LIN428924379/baifanyu/blob/main/LICENSE). Keep that
+license and any applicable attribution with these assets when redistributing.
+
+The supplied Winter White sequence is included as its idle animation; the other
+skins use their supplied expression images to match pet states.
+
 ## Sounds and cursors
 
 The notification sounds under `assets/sounds/` are original procedural audio
