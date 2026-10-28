@@ -171,7 +171,11 @@ export async function startDaemon({
       }
       if (report.request === 'whisper') whisper.speak()
       if (report.request === 'settings') openSettings()
-      if (typeof report.character === 'string') setCharacter(report.character)
+      if (typeof report.character === 'string') {
+        void setCharacter(report.character).catch((error) => {
+          logger.warn?.(`dafeiyu could not switch character: ${error.message}`)
+        })
+      }
       if (Object.keys(patch).length > 0) persist(patch)
   }
   const helper = createPetWindow({
@@ -192,16 +196,22 @@ export async function startDaemon({
 
   // Switching character restarts the pet window with the new frames, then
   // replays the current state onto it.
-  function setCharacter(id) {
+  async function setCharacter(id) {
     if (id === settings.character || !helper.hasCharacter(id)) return false
     // Prepare the new assets before persisting the choice: a broken pack must
     // leave the previous character selected and selectable, not strand the
     // user on a fallback.
     if (!helper.canLoad(id)) return false
     persist({ character: id })
-    helper.restart()
+    const restarting = helper.restart()
     director.setManifest(helper.manifest())
     hub.replay()
+    try {
+      await restarting
+    } catch (error) {
+      logger.warn?.(`dafeiyu could not switch character: ${error.message}`)
+      return false
+    }
     return true
   }
   // Decides every animation; the helper only renders what it is told.

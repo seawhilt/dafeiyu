@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 enum PetGeometry {
     /// A drop this close to a side of the screen docks the pet there.
@@ -9,6 +10,15 @@ enum PetGeometry {
     static let maxTilt: CGFloat = 14
     /// Drag speed, in points per second, per degree of lean.
     static let tiltSpeedPerDegree: CGFloat = 80
+
+    /// Extra vertical room a pet needs below its anchor when it leans by
+    /// `maxTilt`: half the difference between the turned bounding box and the
+    /// upright height. Keeping this in the window prevents corner clipping.
+    static func tiltAllowance(petSize: CGSize) -> CGFloat {
+        let angle = maxTilt * .pi / 180
+        let turned = petSize.width * sin(angle) + petSize.height * cos(angle)
+        return max(0, (turned - petSize.height) / 2)
+    }
 
     /// Which sides of `screen` are real display edges rather than seams to a
     /// neighbouring display. Two screens meeting at a seam must not both dock.

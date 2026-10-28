@@ -69,12 +69,25 @@ export function createPetWindow({
     canLoad: (id) => id === 'whale' || characterRoot(id) !== undefined,
     /** The clips of the character on screen. */
     manifest: () => JSON.parse(readFileSync(join(root ?? packageAssets, 'pet-manifest.json'), 'utf8')),
-    /** Restart on the character now returned by `character()`. */
-    restart() {
-      helper.stop('character-change')
+    /**
+     * Restart on the character now returned by `character()`. Resolves once
+     * the previous helper has exited (or after a short grace period), so two
+     * pet windows do not overlap during a switch.
+     */
+    async restart() {
+      const previous = helper
+      previous.stop('character-change')
       root = characterRoot(character())
-      helper = createHelper(options())
-      helper.start()
+      const next = createHelper(options())
+      helper = next
+      if (typeof previous.whenExited === 'function') {
+        const grace = new Promise((resolve) => {
+          const timer = setTimeout(resolve, 1500)
+          timer.unref?.()
+        })
+        await Promise.race([previous.whenExited(), grace])
+      }
+      next.start()
     },
   }
 }

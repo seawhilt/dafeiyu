@@ -363,7 +363,10 @@ final class PetController: NSObject {
         // around a ~219pt character (issue #92).
         let showsCard = bubbleMode != "hidden"
         let petArea = max(petWidth + 50, maxClipWidth * scale * pixelScale + 10)
-        var height = petHeight + (showsCard ? cardHeightPoints + 34 : 26)
+        // A 14-degree lean needs more room above and below the anchor; reserve
+        // it even while not dragging so the grab offsets never change.
+        let tiltAllowance = PetGeometry.tiltAllowance(petSize: NSSize(width: petWidth, height: petHeight))
+        var height = petHeight + (showsCard ? cardHeightPoints + 34 : 26) + tiltAllowance * 2
         if dockEdge != nil {
             // Turned a quarter, the pet spans its width vertically. Reserve
             // that much room (plus a margin) or the docked head gets clipped.
@@ -435,8 +438,10 @@ final class PetController: NSObject {
         let offsetX = min(max(position.x - windowX, 0), size.width - petWidth)
         self.petX = windowX + offsetX
 
-        let windowY = position.y - 8
-        self.petY = windowY + 8
+        let windowY = position.y - (8 + PetGeometry.tiltAllowance(petSize: NSSize(width: petWidth, height: petHeight)))
+        // petY is the pet's screen-bottom anchor; the extra allowance lives
+        // below it so a tilted pet never leaves the window.
+        self.petY = position.y
 
         panel.setFrameOrigin(NSPoint(x: windowX, y: windowY))
         updateClickThrough()
@@ -714,6 +719,12 @@ final class PetController: NSObject {
         currentScreen()?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1512, height: 982)
     }
 
+    /// Physical display bounds, as opposed to the usable area left by the Dock
+    /// and menu bar. Docking belongs to the real screen edge.
+    private func currentScreenBounds() -> NSRect {
+        currentScreen()?.frame ?? NSScreen.main?.frame ?? NSRect(x: 0, y: 0, width: 1512, height: 982)
+    }
+
     /// Which sides of the current screen are real display edges, not seams to
     /// a neighbouring display: a pet dropped against a seam must not dock.
     private func currentOuterEdges() -> (left: Bool, right: Bool) {
@@ -729,7 +740,9 @@ final class PetController: NSObject {
         // window first so the rotated pet can be centred without clipping.
         applyWindowSize()
         let size = windowSize()
-        let screen = currentScreenFrame()
+        // Dock against the physical display edge; the visible frame decides
+        // where the pet rests when it comes back out (inside a visible Dock).
+        let screen = currentScreenBounds()
         petX = PetGeometry.dockedX(edge: edge, petSize: NSSize(width: petWidth, height: petHeight), screen: screen)
         let windowX = petX - (size.width - petWidth) / 2
         // petRect() is vertically centred in the docked window, so the pet's
@@ -812,7 +825,7 @@ final class PetController: NSObject {
         // Report a drop by a screen side; the daemon decides whether to dock.
         var drop: [String: Any] = ["type": "drag-end"]
         let pet = NSRect(x: petX, y: petY, width: petWidth, height: petHeight)
-        if let edge = PetGeometry.dockEdge(pet: pet, screen: currentScreenFrame(), outerEdges: currentOuterEdges()) {
+        if let edge = PetGeometry.dockEdge(pet: pet, screen: currentScreenBounds(), outerEdges: currentOuterEdges()) {
             drop["edge"] = edge
         }
         report("input", drop)

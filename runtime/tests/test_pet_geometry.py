@@ -1,4 +1,5 @@
 import unittest
+from math import cos, radians, sin
 
 from runtime.pet_geometry import (
     DOCK_PEEK,
@@ -9,6 +10,7 @@ from runtime.pet_geometry import (
     docked_x,
     position_window,
     screen_outer_edges,
+    tilt_allowance,
     tilt_for_speed,
 )
 
@@ -101,3 +103,16 @@ class SeamDockTests(unittest.TestCase):
 
     def test_a_single_screen_keeps_both_sides(self) -> None:
         self.assertEqual(screen_outer_edges(self.LEFT, [self.LEFT]), (True, True))
+
+
+class TiltAllowanceTests(unittest.TestCase):
+    def test_allowance_covers_the_turned_bounding_box(self) -> None:
+        width, height = 412, 344
+        angle = radians(MAX_TILT)
+        turned = width * sin(angle) + height * cos(angle)
+        allowance = tilt_allowance((width, height))
+        self.assertGreaterEqual(allowance, (turned - height) / 2)
+        self.assertEqual(allowance, 45)
+
+    def test_a_zero_lean_needs_no_extra_room(self) -> None:
+        self.assertEqual(tilt_allowance((0, 0)), 0)

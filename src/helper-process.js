@@ -401,6 +401,7 @@ export class HelperProcess {
     this.options = options
     this.logger = logger
     this.child = undefined
+    this.exitWaiters = []
     this.queue = []
     this.snapshot = new Map()
     this.spawned = false
@@ -523,6 +524,7 @@ export class HelperProcess {
       }
       if (this.child !== child) return
       this.child = undefined
+      this.#resolveExitWaiters()
       this.spawned = false
       this.readyAt = 0
       this.writeBlocked = false
@@ -536,6 +538,7 @@ export class HelperProcess {
       if (this.child !== child) return
       this.#log('INFO', `helper exited code=${String(code)} signal=${String(signal)} ready=${String(this.spawned)} runtimeMs=${this.readyAt > 0 ? Date.now() - this.readyAt : 0}`)
       this.child = undefined
+      this.#resolveExitWaiters()
       const wasReady = this.spawned
       const readyAt = this.readyAt
       this.spawned = false
@@ -595,6 +598,15 @@ export class HelperProcess {
       return
     }
     this.#writePayload(this.child, line)
+  }
+
+  /**
+   * Resolve when the current child exits, or immediately when none is running.
+   * Used to avoid two pet windows during a character switch.
+   */
+  whenExited() {
+    if (!this.child) return Promise.resolve()
+    return new Promise((resolve) => this.exitWaiters.push(resolve))
   }
 
   stop(reason = 'plugin-disposed') {
@@ -773,6 +785,10 @@ export class HelperProcess {
 
   #log(level, message) {
     this.log?.write(level, message)
+  }
+
+  #resolveExitWaiters() {
+    for (const resolve of this.exitWaiters.splice(0)) resolve()
   }
 
   #countStartFailure(reason) {

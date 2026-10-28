@@ -23,14 +23,16 @@ try:
     from .layout_store import appkit_to_qt_y, default_layout_path, load_layout, pet_position_from_layout, save_layout
     from .asset_paths import bundle_root
     from .pet_geometry import (
-        bubble_top, dock_angle, dock_edge, docked_x, position_window, screen_outer_edges, tilt_for_speed,
+        bubble_top, dock_angle, dock_edge, docked_x, position_window, screen_outer_edges, tilt_allowance,
+        tilt_for_speed,
     )
 except ImportError:
     from animation_model import Player, crossfade_duration
     from layout_store import appkit_to_qt_y, default_layout_path, load_layout, pet_position_from_layout, save_layout
     from asset_paths import bundle_root
     from pet_geometry import (
-        bubble_top, dock_angle, dock_edge, docked_x, position_window, screen_outer_edges, tilt_for_speed,
+        bubble_top, dock_angle, dock_edge, docked_x, position_window, screen_outer_edges, tilt_allowance,
+        tilt_for_speed,
     )
 
 
@@ -765,6 +767,17 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 return None
             return geometry.x(), geometry.y(), geometry.width(), geometry.height()
 
+        def _screen_bounds(self) -> tuple[int, int, int, int] | None:
+            """Physical display bounds, not the usable area left by bars/docks."""
+            pet_width, pet_height = self._pet_size()
+            screen = QApplication.screenAt(
+                QPoint(self.pet_x + pet_width // 2, self.pet_y + pet_height // 2)
+            ) or QApplication.primaryScreen()
+            if screen is None:
+                return None
+            geometry = screen.geometry()
+            return geometry.x(), geometry.y(), geometry.width(), geometry.height()
+
         def _screen_outer_edges(self) -> tuple[bool, bool]:
             """Which sides of the current screen are real display edges.
 
@@ -822,7 +835,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
 
         def _place_docked(self) -> None:
             """Hold the docked pet half behind its screen side."""
-            screen = self._screen_rect()
+            # The physical edge, so a visible Dock/taskbar does not leave the
+            # pet floating beside it.
+            screen = self._screen_bounds()
             if self.dock_edge is None or screen is None:
                 return
             pet_width, pet_height = self._pet_size()
@@ -909,7 +924,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             if (self.width(), self.height()) != old_size:
                 self._move_to_pet(self.pet_x, self.pet_y)
             # Report a drop by a screen side; the daemon decides whether to dock.
-            screen = self._screen_rect()
+            # Use physical bounds: a drop at the real edge should dock even when
+            # a Dock insets the usable area.
+            screen = self._screen_bounds()
             edge = (
                 dock_edge((self.pet_x, self.pet_y, *self._pet_size()), screen, self._screen_outer_edges())
                 if screen
@@ -950,12 +967,19 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             # for the widest so it is never clipped by the window.
             max_clip_width = int(manifest.get("maxClipWidth", manifest["maxFrameWidth"]))
             pet_area = max(pet_width + 50, round(max_clip_width * self._draw_scale()) + 10)
+            # Reserve room above and below the anchor for the 14-degree drag
+            # lean. Keeping it constant means the grab offsets never change
+            # mid-gesture.
+            allowance = tilt_allowance((pet_width, pet_height))
             if self._bubble_visible():
                 bubble_width = round(CARD_WIDTH * self.bubble_scale)
                 bubble_height = self._card_height()
-                self.setFixedSize(max(pet_area, bubble_width + 28), pet_height + bubble_height + 34)
+                self.setFixedSize(
+                    max(pet_area, bubble_width + 28),
+                    pet_height + bubble_height + 34 + allowance * 2,
+                )
             else:
-                height = pet_height + 26
+                height = pet_height + 26 + allowance * 2
                 if self.dock_edge is not None:
                     # Turned a quarter, the pet spans its width vertically; a
                     # window reserved for the upright height would clip the
@@ -986,8 +1010,13 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 return
             geometry = self._screen_geometry_at(pet_x, pet_y)
             screen = (geometry.x(), geometry.y(), geometry.width(), geometry.height()) if geometry is not None else None
+            pet_size = self._pet_size()
+            # position_window works with the upright layout height; the other
+            # half of the tilt allowance becomes transparent room below the
+            # anchor (the window top moves up by the other half).
+            layout_height = max(1, self.height() - tilt_allowance(pet_size))
             window_x, window_y, self.pet_x, self.pet_y = position_window(
-                (pet_x, pet_y), self._pet_size(), (self.width(), self.height()), screen,
+                (pet_x, pet_y), pet_size, (self.width(), layout_height), screen,
                 self._card_height() if self._bubble_visible() else 0,
             )
             self.move(window_x, window_y)

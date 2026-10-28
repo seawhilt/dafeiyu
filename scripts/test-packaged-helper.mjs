@@ -29,6 +29,14 @@ const hasReply = (output, kind) => output.split(/\r?\n/).some((line) => {
     return false
   }
 })
+const countReply = (output, kind) => output.split(/\r?\n/).reduce((count, line) => {
+  if (!line.trim()) return count
+  try {
+    return JSON.parse(line).kind === kind ? count + 1 : count
+  } catch {
+    return count
+  }
+}, 0)
 
 await stat(executable)
 await mkdir(dirname(snapshot), { recursive: true })
@@ -94,6 +102,27 @@ try {
       return false
     }
   }, 'visual snapshot')
+
+  // Exercise the newer dock / tilt / reduced-motion paths too, then use a
+  // final ping to prove the helper processed the whole queue.
+  const send = (message) => child.stdin.write(`${JSON.stringify({
+    protocolVersion: 1,
+    timestamp: Date.now(),
+    ...message,
+  })}\n`)
+  send({ kind: 'ping' })
+  await waitUntil(() => countReply(standardOutput, 'pong') >= 1, 'first ping')
+  send({ kind: 'config', reducedMotion: true })
+  send({ kind: 'play', clip: 'dragging', loop: true })
+  send({ kind: 'play', clip: 'dragging_release' })
+  send({ kind: 'dock', edge: 'left' })
+  await delay(150)
+  send({ kind: 'dock', edge: null })
+  send({ kind: 'play', clip: 'success', loop: false })
+  send({ kind: 'config', reducedMotion: false })
+  send({ kind: 'ping' })
+  await waitUntil(() => countReply(standardOutput, 'pong') >= 2, 'ping after dock')
+
   child.stdin.end(`${JSON.stringify({
     protocolVersion: 1,
     kind: 'shutdown',

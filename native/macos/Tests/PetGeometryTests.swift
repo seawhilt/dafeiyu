@@ -116,4 +116,21 @@ final class PetGeometryTests: XCTestCase {
         XCTAssertTrue(edges.left)
         XCTAssertTrue(edges.right)
     }
+
+    // MARK: - Tilt allowance
+
+    func testTiltAllowanceCoversTheTurnedBoundingBox() {
+        let size = CGSize(width: 412, height: 344)
+        let angle = PetGeometry.maxTilt * .pi / 180
+        let turned = size.width * sin(angle) + size.height * cos(angle)
+        XCTAssertEqual(
+            PetGeometry.tiltAllowance(petSize: size),
+            (turned - size.height) / 2,
+            accuracy: 0.001
+        )
+    }
+
+    func testAZeroSizedPetNeedsNoTiltAllowance() {
+        XCTAssertEqual(PetGeometry.tiltAllowance(petSize: .zero), 0)
+    }
 }

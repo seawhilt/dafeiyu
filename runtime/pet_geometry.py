@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from math import ceil, cos, radians, sin
 
 Rect = tuple[int, int, int, int]
 
@@ -121,3 +122,16 @@ def dock_angle(edge: str | None) -> float:
 def tilt_for_speed(speed: float) -> float:
     """The lean for a horizontal drag speed: toward the motion, capped."""
     return min(MAX_TILT, max(-MAX_TILT, speed / TILT_SPEED_PER_DEGREE))
+
+
+def tilt_allowance(pet_size: tuple[int, int]) -> int:
+    """Extra vertical room below the anchor for a `MAX_TILT` lean.
+
+    A centred rotation needs half the difference between the turned bounding
+    box and the upright height. Keeping it in the window stops corners from
+    being clipped while the pet is dragged.
+    """
+    width, height = pet_size
+    angle = radians(MAX_TILT)
+    turned = width * sin(angle) + height * cos(angle)
+    return max(0, ceil((turned - height) / 2))

@@ -123,12 +123,12 @@ export function createSettingsRoutes(ctx) {
   return {
     'GET /config': () => overview(),
     'GET /characters': () => characters(),
-    'POST /character': (body) => {
+    'POST /character': async (body) => {
       if (typeof body?.id !== 'string' || !listCharacters(ctx.petsRoot).some((item) => item.id === body.id)) {
         throw new SettingsError(404, '没有这个形象')
       }
       const current = ctx.character()
-      if (!ctx.setCharacter(body.id) && body.id !== current) {
+      if (!(await ctx.setCharacter(body.id)) && body.id !== current) {
         throw new SettingsError(409, '这个形象无法加载，请重新安装或换一个')
       }
       return characters()
