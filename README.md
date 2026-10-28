@@ -19,7 +19,7 @@
 - **两家服务商共用一只桌宠**：配置了哪个就用哪个，两个都配了就在右键菜单「服务商」里切换。切换后立即显示该服务商的最新状态，选择会被记住。
 - **Claude Code**：通过 hooks 显示任务状态；气泡底部显示订阅额度，例如「Claude 额度 会话 10% · 本周 27%」。
 - **DeepSeek Harness**：显示任务状态、步骤、多任务和待办进度；气泡底部显示 DeepSeek 余额。
-- 支持拖动、摸头、戳身体、碰尾巴，以及大小、气泡、声音和减少动态设置。
+- 支持拖动、贴边停靠（拖到屏幕左右边缘松手，点一下出来）、拖动倾斜、摸头、戳身体、碰尾巴，以及大小、气泡、声音和减少动态设置。
 
 状态全部来自 Agent 自己上报的事件，大肥鱼不会读取屏幕。Claude Code 的 hook 只转发事件类型、会话 ID、工作目录和工具名，不会转发你的提示词和文件内容。
 
@@ -50,7 +50,7 @@ dafeiyu settings
 
 这会启动桌宠，并在浏览器打开设置页，在页面上一键接入 Claude Code，或按提示接入 DeepSeek。以后也可以在桌宠上右键选「设置…」打开。
 
-升级时重新运行一次上面的 `npm install -g` 命令即可；指定版本可以把 `latest/download/agent-dafeiyu.tgz` 换成 `download/v0.2.0/agent-dafeiyu-0.2.0.tgz`。卸载前先运行 `dafeiyu uninstall-claude` 移除 hooks，再 `npm uninstall -g agent-dafeiyu`。
+升级时先运行 `dafeiyu stop`，再重新运行一次上面的 `npm install -g` 命令。Windows 上这一步尤其重要：正在运行的守护进程会占用全局安装目录里的文件，不先停止可能升级失败。指定版本可以把 `latest/download/agent-dafeiyu.tgz` 换成 `download/v0.2.3/agent-dafeiyu-0.2.3.tgz`。卸载时先运行 `dafeiyu uninstall-claude` 移除 hooks，再 `dafeiyu stop` 关闭守护进程，最后 `npm uninstall -g agent-dafeiyu`。
 
 > 正式支持 macOS 和 Windows。Linux 没有预编译的桌宠程序，会回退到 Python 版，需要自己装 `python3` 与 `PySide6>=6.7,<7`，不保证效果。
 
@@ -89,10 +89,12 @@ dsh plugin --profile desktop add ./agent-dafeiyu.tgz
 | 命令 | 作用 |
 | --- | --- |
 | `dafeiyu start` / `stop` | 启动 / 关闭守护进程 |
+| `dafeiyu settings` | 打开桌宠设置页（也可在桌宠右键菜单选择「设置…」） |
 | `dafeiyu status` | 查看当前服务商和已配置的服务商 |
 | `dafeiyu use claude` / `use deepseek` | 切换服务商，和右键菜单效果相同 |
 | `dafeiyu install-claude` / `uninstall-claude` | 写入 / 移除 Claude Code 接入 |
 | `dafeiyu forget-deepseek` | 不再把 DeepSeek 列为可选服务商 |
+| `dafeiyu daemon` | 前台运行守护进程，排查问题时用 |
 
 守护进程的配置和日志在 `~/.dafeiyu/`，可以用环境变量 `DAFEIYU_HOME` 改位置。
 
@@ -120,6 +122,8 @@ dsh plugin --profile desktop add ./agent-dafeiyu.tgz
 | 子 Agent | 允许子 Agent 状态参与显示 |
 | 显示余额 / 余额来源 | DeepSeek 余额的开关和来源 |
 
+> 共享桌宠模式下，角色大小、气泡、待机动作、减少动态、提示音和碎碎念以桌宠设置页（`dafeiyu settings` 或右键「设置…」）为准；DSH 插件卡只保留运行方式、余额、子 Agent 等 DSH 侧设置。改成独立桌宠后，插件卡里的外观设置才生效。
+
 右键菜单可以切换服务商、调整大小、减少动态，或仅在本次运行隐藏／关闭角色。动作规则见 [动作说明](docs/animation-behavior.md)。
 
 ## 平台
@@ -146,13 +150,13 @@ dsh plugin --profile desktop add ./agent-dafeiyu.tgz
 ```bash
 git clone https://github.com/seawhilt/dafeiyu.git
 cd dafeiyu
-npx pnpm@10 install --frozen-lockfile
+npx pnpm@11 install --frozen-lockfile
 npm run build:helper        # 构建当前平台的桌宠程序
 npm link                    # 注册 dafeiyu 命令
 ```
 
 ```bash
-npx pnpm@10 install --frozen-lockfile
+npx pnpm@11 install --frozen-lockfile
 npm test
 npm run test:python
 npm run build:helper
@@ -167,7 +171,7 @@ npm run build:helper
 | 来源 | 用在哪里 | 协议 |
 | --- | --- | --- |
 | [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu) | 项目起点：DSH 插件、原生桌宠程序、状态归约 | MIT |
-| [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) | 鲸尾女仆全部 106 段动画素材，碎碎念、动作菜单的思路 | MIT |
+| [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) | 鲸尾女仆全部 108 段动画素材，碎碎念、动作菜单的思路 | MIT |
 | [Chromium](https://chromium.googlesource.com/chromium/src/+/main/ui/resources/cursors/) | 拖拽时的手套光标 | BSD-3-Clause |
 | [crafter-station/petdex](https://github.com/crafter-station/petdex) | 「从 petdex 安装」形象的宠物图库 | MIT |
 | codex-pets 宠物格式、[eivmosn/dsh-pets](https://github.com/eivmosn/dsh-pets) | 换形象功能参考的格式和思路 | MIT |

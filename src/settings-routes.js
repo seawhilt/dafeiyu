@@ -43,12 +43,15 @@ export function openInBrowser(url, { platform = process.platform, run = spawn } 
   child.unref?.()
 }
 
-/**
- * Preview image bytes for a character: a codex pack's sprite sheet, or the
- * whale's first idle frame.
- */
+let whalePreview
+/** Preview image bytes for a character: a codex pack's sprite sheet, or the
+ * whale's first idle frame. Both are cached because the settings page asks
+ * once per card on every render. */
 export function characterPreview(id, petsRoot) {
-  if (id === 'whale') return readFileSync(resolve(packageRoot, 'assets', 'pet', 'idle', 'idle_001.webp'))
+  if (id === 'whale') {
+    whalePreview ??= readFileSync(resolve(packageRoot, 'assets', 'pet', 'idle', 'idle_001.webp'))
+    return whalePreview
+  }
   return codexSheet(id, petsRoot)
 }
 
@@ -124,7 +127,10 @@ export function createSettingsRoutes(ctx) {
       if (typeof body?.id !== 'string' || !listCharacters(ctx.petsRoot).some((item) => item.id === body.id)) {
         throw new SettingsError(404, '没有这个形象')
       }
-      ctx.setCharacter(body.id)
+      const current = ctx.character()
+      if (!ctx.setCharacter(body.id) && body.id !== current) {
+        throw new SettingsError(409, '这个形象无法加载，请重新安装或换一个')
+      }
       return characters()
     },
     'POST /characters/install': async (body) => {

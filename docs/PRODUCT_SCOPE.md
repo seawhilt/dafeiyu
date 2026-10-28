@@ -4,6 +4,14 @@
 
 大肥鱼是 DSH 的桌面状态伴侣，不是第二套聊天工具、系统监控器或独立桌宠平台。
 
+## 2026-10 实现现状
+
+下面几条已经和正文里的早期取舍不同。历史取舍保留在后文，实际行为以本节和当前代码为准：
+
+- **本地 loopback HTTP + 随机端口已是实现。** 「不吸收本地 HTTP 服务、固定端口」指的是不把固定端口暴露成第三方控制面；当前守护进程只监听 `127.0.0.1` 的随机端口，每次运行生成 token，写入只有本人可读的 `~/.dafeiyu/daemon.json`；设置页地址也把 token 放在 `#` 片段里。CLI、Claude Code hooks 和 DSH 插件都通过这个本地端口与守护进程通信。
+- **设置既有 DSH 插件卡，也有 `dafeiyu settings` 页。** DSH 插件卡负责运行方式（共享／独立桌宠）、余额、子 Agent 等 DSH 侧设置；角色、气泡、待机动作、减少动态、提示音和碎碎念在外观设置页（`dafeiyu settings` 或桌宠右键「设置…」）。共享桌宠模式下外观设置归守护进程所有，插件卡不再展示实际无效的外观控件。
+- **Phase 3 的 Windows Helper 已发布。** Release 工作流会分别构建 Windows Helper 与 macOS Universal Helper，一起放进 npm 包和 GitHub Release。Windows 预构建 Helper、安装／升级／回滚已落地；Linux 仍是回退到 Python 的非正式支持，macOS 目前是 ad-hoc 签名，尚未做开发者证书签名与公证。
+
 ## 从独立版保留
 
 独立版现有动作清单包含 `IDLE`、`BLINK`、`GLANCE`、`THINKING`、`WALKING`、

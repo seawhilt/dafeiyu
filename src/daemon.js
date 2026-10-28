@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { closeSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs'
+import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from 'node:fs'
 import { translateClaudeHook } from './claude-adapter.js'
 import { claudeHooksInstalled, claudeSettingsPath as defaultClaudeSettingsPath } from './claude-hooks.js'
 import { queryClaudeUsage, usageMessage } from './claude-usage.js'
@@ -50,10 +50,31 @@ export function acquireLock(paths) {
       return true
     } catch (error) {
       if (error.code !== 'EEXIST') throw error
+      let ownerText
       let owner
-      try { owner = Number(readFileSync(paths.lock, 'utf8')) } catch {}
+      try {
+        ownerText = readFileSync(paths.lock, 'utf8')
+        owner = Number(ownerText)
+      } catch {}
+      if (!Number.isInteger(owner) || owner <= 0) {
+        // An empty lock belongs to a starter between create and write. It is
+        // only reclaimable once it is clearly abandoned (a crash in that
+        // window), never while a concurrent starter may still be writing.
+        let modifiedAt
+        try { modifiedAt = statSync(paths.lock).mtimeMs } catch {}
+        if (modifiedAt === undefined || Date.now() - modifiedAt < 1000) return false
+        try { rmSync(paths.lock, { force: true }) } catch {}
+        continue
+      }
       if (processAlive(owner)) return false
-      rmSync(paths.lock, { force: true })
+      // Reclaim only a lock that is unchanged since the read: another starter
+      // may have replaced the stale file in between.
+      try {
+        if (readFileSync(paths.lock, 'utf8') !== ownerText) continue
+      } catch {
+        continue
+      }
+      try { rmSync(paths.lock, { force: true }) } catch {}
     }
   }
   return false
@@ -173,6 +194,10 @@ export async function startDaemon({
   // replays the current state onto it.
   function setCharacter(id) {
     if (id === settings.character || !helper.hasCharacter(id)) return false
+    // Prepare the new assets before persisting the choice: a broken pack must
+    // leave the previous character selected and selectable, not strand the
+    // user on a fallback.
+    if (!helper.canLoad(id)) return false
     persist({ character: id })
     helper.restart()
     director.setManifest(helper.manifest())
@@ -367,11 +392,14 @@ export async function startDaemon({
     whisper.stop()
     director.stop()
     helper.stop(reason)
-    await server.close()
-    if (readRuntime(paths)?.pid === process.pid) rmSync(paths.runtime, { force: true })
-    rmSync(paths.lock, { force: true })
-    onExit(reason)
+    try {
+      await server.close()
+    } finally {
+      if (readRuntime(paths)?.pid === process.pid) rmSync(paths.runtime, { force: true })
+      rmSync(paths.lock, { force: true })
+      onExit(reason)
+    }
   }
 
-  return { port, hub, close, status, settingsUrl }
+  return { port, hub, whisper, close, status, settingsUrl }
 }

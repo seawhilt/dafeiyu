@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
+Rect = tuple[int, int, int, int]
+
 
 def position_window(
     pet_position: tuple[int, int],
@@ -49,13 +53,50 @@ MAX_TILT = 14.0
 TILT_SPEED_PER_DEGREE = 80.0
 
 
-def dock_edge(pet: tuple[int, int, int, int], screen: tuple[int, int, int, int]) -> str | None:
-    """The screen side a pet dropped at `pet` (x, y, width, height) docks on."""
+def screen_outer_edges(
+    screen: Rect,
+    screens: list[Rect],
+    tolerance: int = 1,
+) -> tuple[bool, bool]:
+    """Which sides of `screen` are real display edges, not seams to a neighbour.
+
+    Two displays meeting at a seam form one continuous desktop; docking a pet
+    dropped against either side of the seam would make it slide between the
+    screens. Only sides where no other display sits immediately beyond count.
+    """
+    left, top, width, height = screen
+    right = left + width
+    bottom = top + height
+
+    def seam(edge: int, neighbour_edge: Callable[[Rect], int]) -> bool:
+        return any(
+            other != screen
+            and abs(neighbour_edge(other) - edge) <= tolerance
+            and other[1] < bottom
+            and other[1] + other[3] > top
+            for other in screens
+        )
+
+    left_seam = seam(left, lambda other: other[0] + other[2])
+    right_seam = seam(right, lambda other: other[0])
+    return (not left_seam, not right_seam)
+
+
+def dock_edge(
+    pet: Rect,
+    screen: Rect,
+    outer_edges: tuple[bool, bool] = (True, True),
+) -> str | None:
+    """The screen side a pet dropped at `pet` (x, y, width, height) docks on.
+
+    `outer_edges` comes from `screen_outer_edges`: a seam between two displays
+    is not a screen side to dock against.
+    """
     pet_x, _pet_y, pet_width, _pet_height = pet
     left, _top, screen_width, _screen_height = screen
-    if pet_x <= left + DOCK_SNAP_DISTANCE:
+    if outer_edges[0] and pet_x <= left + DOCK_SNAP_DISTANCE:
         return "left"
-    if pet_x + pet_width >= left + screen_width - DOCK_SNAP_DISTANCE:
+    if outer_edges[1] and pet_x + pet_width >= left + screen_width - DOCK_SNAP_DISTANCE:
         return "right"
     return None
 

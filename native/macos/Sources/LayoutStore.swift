@@ -35,6 +35,36 @@ struct PetLayout {
             .appendingPathComponent(".dafeiyu/layout.json")
     }
 
+    /// Window coordinates of the native helper (AppKit's y axis grows up).
+    static let appkitCoordinateSpace = "appkit-bottom-left"
+    /// Window coordinates of the Qt helper (its y axis grows down).
+    static let qtCoordinateSpace = "qt-top-left"
+
+    /// The pet anchor in this helper's AppKit bottom-left coordinates.
+    ///
+    /// The `coordinateSpace` marker is authoritative when present: both
+    /// helpers share one layout file. A file from the Qt helper stores
+    /// top-left y, so it is flipped by the primary display height. A legacy
+    /// file without a marker keeps the old heuristic (a y in the top half was
+    /// almost certainly written by Qt).
+    func petPosition(petHeight: Double, screenHeight: Double) -> (x: Double, y: Double)? {
+        guard let petX = petX, let petY = petY else { return nil }
+        var y = Double(petY)
+        let writtenTopLeft: Bool
+        switch coordinateSpace {
+        case Self.qtCoordinateSpace:
+            writtenTopLeft = true
+        case Self.appkitCoordinateSpace:
+            writtenTopLeft = false
+        default:
+            writtenTopLeft = y < screenHeight * 0.5
+        }
+        if writtenTopLeft {
+            y = screenHeight - (y + petHeight)
+        }
+        return (Double(petX), y)
+    }
+
     /// Mirrors `normalise_layout` in `runtime/layout_store.py`: clamps numeric
     /// ranges and falls back to safe defaults for invalid enum-like fields.
     /// Applied both when loading and before saving so the two ports cannot
@@ -96,7 +126,7 @@ struct PetLayout {
             "reducedMotion": reducedMotion,
             "bubbleMode": normalized.bubbleMode,
             "bubbleStates": normalized.bubbleStates,
-            "coordinateSpace": "appkit-bottom-left",
+            "coordinateSpace": Self.appkitCoordinateSpace,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: dict, options: [.prettyPrinted, .sortedKeys]) else {
             return

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -166,13 +166,13 @@ test('usage is not queried while Claude is not set up', async () => {
 })
 
 test('right-click chatter requests and level changes reach the scheduler', async () => {
-  await withDaemon(async ({ paths, sent, helper }) => {
+  await withDaemon(async ({ paths, sent, helper, daemon }) => {
     sent.length = 0
     helper().onSettingsChange({ request: 'whisper' })
     assert.equal(sent.filter((message) => message.kind === 'say').length, 1)
     helper().onSettingsChange({ whisperLevel: 'high' })
     assert.equal(loadSettings(paths).whisperLevel, 'high')
-    assert.equal(sent.findLast((message) => message.kind === 'config')?.whisperLevel ?? 'high', 'high')
+    assert.equal(daemon.whisper.level, 'high', 'the running scheduler follows the chosen level')
   })
 })
 
@@ -199,6 +199,13 @@ test('the single-instance lock is exclusive and reclaims dead owners', () => {
     assert.equal(acquireLock(paths), false)
     rmSync(paths.lock)
     writeFileSync(paths.lock, '999999999')
+    assert.equal(acquireLock(paths), true)
+    rmSync(paths.lock, { force: true })
+    // A starter can crash between creating the lock and writing its pid; only
+    // an old empty lock is reclaimed.
+    writeFileSync(paths.lock, '')
+    assert.equal(acquireLock(paths), false)
+    utimesSync(paths.lock, new Date(0), new Date(0))
     assert.equal(acquireLock(paths), true)
   } finally {
     rmSync(home, { recursive: true, force: true })

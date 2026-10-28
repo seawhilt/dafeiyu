@@ -67,4 +67,30 @@ final class ClipPlayerTests: XCTestCase {
         XCTAssertNil(ClipPlayer.crossfadeDuration(previousClip: "idle", currentClip: "dragging"))
         XCTAssertEqual(ClipPlayer.crossfadeDuration(previousClip: "idle", currentClip: "poke"), 0.10)
     }
+
+    // MARK: - Reduced motion
+
+    func testReducedMotionSettlesAOneShotOnItsLastFrame() {
+        // The helper never advances frames under reduced motion, so a one-shot
+        // success/error clip must rest on its end pose rather than frame 0.
+        let player = makePlayer()
+        XCTAssertTrue(player.play("poke", settleLastFrame: true))
+        XCTAssertEqual(player.frame, "poke/1")
+        XCTAssertTrue(player.held)
+        XCTAssertNil(player.advance(elapsedMs: 0))
+    }
+
+    func testReducedMotionKeepsALoopingClipAtItsFirstFrame() {
+        let player = makePlayer()
+        player.play("idle", settleLastFrame: true)
+        XCTAssertEqual(player.frame, "idle/0")
+        XCTAssertFalse(player.held)
+    }
+
+    func testReplayingTheSettledClipKeepsTheEndPose() {
+        let player = makePlayer()
+        player.play("poke", settleLastFrame: true)
+        player.play("poke", settleLastFrame: true)
+        XCTAssertEqual(player.frame, "poke/1")
+    }
 }

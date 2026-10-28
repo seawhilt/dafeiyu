@@ -76,10 +76,18 @@ class HelperGeometryTests(unittest.TestCase):
                         window._tick()
                     self.assertEqual(window.model.frame, frame)
                     self.assertEqual((window.layout['petX'], window.layout['petY']), (8, 400))
+                    # A quarter-turned pet needs its width of vertical room and
+                    # is centred in the docked window, or the head gets clipped.
+                    pet_width, pet_height = window._pet_size()
+                    self.assertGreaterEqual(window.height(), pet_width + 16)
+                    _, docked_pet_y, _, _ = window._pet_rect()
+                    self.assertAlmostEqual(docked_pet_y + pet_height / 2, window.height() / 2, delta=1)
                     window.grab()
                     message('dock', edge=None)
                     assert_anchor((8, 400))
                     message('config', bubbleMode='hidden')
+                    # Undocking restores the upright window size.
+                    self.assertEqual(window.height(), pet_height + 26)
                     with patch.object(QDesktopServices, 'openUrl', return_value=False), patch('sys.stderr'):
                         window._open_client()
                     self.assertEqual(window.overlay_message, '无法打开 DSH')

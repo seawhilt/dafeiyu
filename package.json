@@ -1,6 +1,6 @@
 {
   "name": "agent-dafeiyu",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "大肥鱼桌宠：Claude Code 与 DeepSeek Harness 共用的桌面 Agent 状态伴侣，右键切换服务商。",
   "author": "seawhilt",
   "type": "module",

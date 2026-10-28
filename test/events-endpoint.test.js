@@ -90,3 +90,17 @@ test('event stream drops dead subscribers instead of throwing', () => {
   assert.equal(stream.clientCount, 1)
   assert.match(healthy.chunks.at(-1), /"kind":"hello"/)
 })
+
+test('a subscriber that dies while the snapshot replays is dropped quietly', () => {
+  const stream = createEventStream()
+  stream.broadcast({ protocolVersion: 1, kind: 'state', state: 'IDLE' })
+  const broken = fakeRes()
+  broken.write = () => {
+    throw new Error('connection reset')
+  }
+  assert.doesNotThrow(() => stream.add(broken))
+  assert.equal(stream.clientCount, 0)
+  const healthy = fakeRes()
+  stream.add(healthy)
+  assert.match(healthy.chunks.join(''), /"kind":"state"/)
+})

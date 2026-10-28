@@ -18,14 +18,19 @@ concurrency:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         os:
+          - ubuntu-latest
           - windows-latest
+        node:
+          # 22.19 is the minimum in package.json "engines"; 24 is the current LTS.
+          - "22.19"
+          - "24"
 
     steps:
       - name: Check out source
@@ -34,7 +39,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node }}
           # pnpm is installed in the next step, so there is no store to cache yet.
           package-manager-cache: false
 
@@ -75,8 +80,11 @@ jobs:
       - name: Run Swift core tests
         run: swift test
 
+      - name: Install pnpm
+        run: npm install --global pnpm@11.21.0
+
       - name: Install JavaScript dependencies
-        run: npm install --ignore-scripts --no-package-lock
+        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Set up Python
         # Without this the job silently used the image's python3 (3.14 on

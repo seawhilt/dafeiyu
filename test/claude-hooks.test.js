@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -53,6 +53,24 @@ test('file round trip writes a backup and refuses to clobber invalid JSON', () =
     writeFileSync(path, '{ broken')
     assert.throws(() => installClaudeHooks(path, command))
     assert.equal(readFileSync(path, 'utf8'), '{ broken')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('installing preserves the settings file mode and does not widen it', { skip: process.platform === 'win32' }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dafeiyu-hooks-mode-'))
+  try {
+    const path = join(dir, 'settings.json')
+    writeFileSync(path, JSON.stringify({ theme: 'dark' }), { mode: 0o600 })
+    chmodSync(path, 0o600)
+    installClaudeHooks(path, command)
+    assert.equal(statSync(path).mode & 0o777, 0o600)
+    assert.equal(statSync(`${path}.dafeiyu.bak`).mode & 0o777, 0o600)
+
+    const fresh = join(dir, 'fresh', 'settings.json')
+    installClaudeHooks(fresh, command)
+    assert.equal(statSync(fresh).mode & 0o777, 0o600)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

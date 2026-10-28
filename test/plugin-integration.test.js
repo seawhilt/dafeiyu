@@ -60,9 +60,10 @@ async function eventLogHasKind(eventLog, kind) {
   }
 }
 
-test('plugin forwards DSH-shaped session events and owns helper shutdown', async () => {
+test('plugin forwards DSH-shaped session events and owns helper shutdown', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'agent-dafeiyu-plugin-'))
   const eventLog = join(directory, 'events.jsonl')
+  t.after(() => rm(directory, { recursive: true, force: true }))
   const listeners = new Map()
   let dispose
   const ctx = {
@@ -95,7 +96,11 @@ test('plugin forwards DSH-shaped session events and owns helper shutdown', async
   })
 
   const messages = (await readFile(eventLog, 'utf8')).trim().split(/\r?\n/).map(JSON.parse)
-  assert.deepEqual(messages.map((message) => message.kind), [
+  // The director also sends `play` as it chooses clips; protocol semantics are
+  // what this test owns, so assert the state sequence without pinning where
+  // playback messages are interleaved.
+  const kinds = messages.map((message) => message.kind).filter((kind) => kind !== 'play')
+  assert.deepEqual(kinds, [
     'hello',
     'state',
     'state',
@@ -103,6 +108,7 @@ test('plugin forwards DSH-shaped session events and owns helper shutdown', async
     'pulse',
     'shutdown',
   ])
+  assert.equal(messages.filter((message) => message.kind === 'play').length, 4)
   assert.deepEqual(messages.map((message) => message.state).filter(Boolean), [
     'IDLE',
     'IDLE',
@@ -110,12 +116,12 @@ test('plugin forwards DSH-shaped session events and owns helper shutdown', async
     'WORKING',
     'SUCCESS',
   ])
-  await rm(directory, { recursive: true, force: true })
 })
 
-test('live settings keep the active project state without restarting the helper', async () => {
+test('live settings keep the active project state without restarting the helper', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'agent-dafeiyu-live-settings-'))
   const eventLog = join(directory, 'events.jsonl')
+  t.after(() => rm(directory, { recursive: true, force: true }))
   const listeners = new Map()
   let dispose
   let settingsListener
@@ -174,7 +180,6 @@ test('live settings keep the active project state without restarting the helper'
   const working = messages.findLast((message) => message.state === 'WORKING')
   assert.equal(working.project, 'active-project')
   assert.equal(working.task, '继续保留这个任务')
-  await rm(directory, { recursive: true, force: true })
 })
 
 test('helper context-menu changes persist through the DSH settings service', async () => {

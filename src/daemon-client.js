@@ -50,13 +50,18 @@ export function callDaemon(path, body, { paths = daemonPaths(), timeoutMs = 1500
 }
 
 export function spawnDaemon({ env = process.env } = {}) {
-  const child = spawn(process.execPath, [cliPath, 'daemon'], {
-    detached: true,
-    stdio: 'ignore',
-    env,
-    windowsHide: true,
-  })
-  child.unref()
+  try {
+    const child = spawn(process.execPath, [cliPath, 'daemon'], {
+      detached: true,
+      stdio: 'ignore',
+      env,
+      windowsHide: true,
+    })
+    // A bootstrap failure must surface as "daemon did not start" to the caller,
+    // never as an unhandled child-process error in the hook.
+    child.on('error', () => {})
+    child.unref()
+  } catch {}
 }
 
 const sleep = (ms) => new Promise((done) => { setTimeout(done, ms) })

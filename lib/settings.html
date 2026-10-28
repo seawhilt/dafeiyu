@@ -261,6 +261,15 @@ const $ = (id) => document.getElementById(id)
 const labels = { claude: 'Claude', deepseek: 'DeepSeek' }
 let state
 
+// Everything the page creates besides DOM nodes and must take back down.
+// `render()` runs every 5 seconds and `renderCharacters()` on every refresh,
+// so anything left running here would accumulate silently.
+const segmentedState = new WeakMap()
+const sheetStops = new Set()
+const blobUrls = new Set()
+let previewEpoch = 0
+let refreshTimer
+
 function toast(text) {
   const el = $('toast')
   el.textContent = text
@@ -300,15 +309,29 @@ function pill(id, configured, active) {
   el.textContent = active ? '正在显示' : configured ? '已接入' : '未接入'
 }
 
+// Rebuild the buttons only when the option list itself changes. The page
+// refreshes every 5 seconds; replacing the nodes on each tick would drop
+// keyboard focus from a button the user is tabbing through.
 function renderSegmented(el, options, value, onPick) {
-  el.replaceChildren(...options.map(([id, label]) => {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.textContent = label
-    button.setAttribute('aria-pressed', String(id === value))
-    button.addEventListener('click', () => onPick(id))
-    return button
-  }))
+  const signature = JSON.stringify(options)
+  let cached = segmentedState.get(el)
+  if (!cached || cached.signature !== signature) {
+    const buttons = options.map(([id, label]) => {
+      const button = document.createElement('button')
+      button.type = 'button'
+      button.textContent = label
+      button.setAttribute('aria-pressed', 'false')
+      button.addEventListener('click', () => cached.onPick(id))
+      return button
+    })
+    cached = { signature, onPick, buttons }
+    segmentedState.set(el, cached)
+    el.replaceChildren(...buttons)
+  }
+  cached.onPick = onPick
+  options.forEach(([id], index) => {
+    cached.buttons[index].setAttribute('aria-pressed', String(id === value))
+  })
 }
 
 function render() {
@@ -319,6 +342,7 @@ function render() {
   if (state.available.length > 0) {
     renderSegmented(switcher, state.available.map((id) => [id, labels[id] ?? id]), state.active, (id) => run(() => api('/provider', { provider: id }), `已切换到 ${labels[id]}`))
   } else {
+    segmentedState.delete(switcher)
     switcher.replaceChildren()
   }
   $('provider-hint').textContent = state.available.length === 0
@@ -403,15 +427,47 @@ $('deepseek-forget').addEventListener('click', () => {
 })
 
 async function blobUrl(path) {
+  const epoch = previewEpoch
   const response = await fetch(path, { headers: { 'x-dafeiyu-token': token } })
   if (!response.ok) throw new Error('preview unavailable')
-  return URL.createObjectURL(await response.blob())
+  const url = URL.createObjectURL(await response.blob())
+  if (epoch !== previewEpoch) {
+    // The character list was rebuilt while this preview was still loading.
+    URL.revokeObjectURL(url)
+    return null
+  }
+  blobUrls.add(url)
+  return url
+}
+
+// Stop every animation and release every preview URL created for the cards
+// currently on screen. Called before the list is rebuilt and on page unload.
+function releasePreviews() {
+  previewEpoch += 1
+  for (const stop of sheetStops) stop()
+  sheetStops.clear()
+  for (const url of blobUrls) URL.revokeObjectURL(url)
+  blobUrls.clear()
 }
 
 // Codex sheets animate their idle row on a canvas; CSP allows no inline styles.
+// The returned stop function is also tracked here: the interval must die with
+// the card, otherwise every refresh leaks a timer painting into a detached
+// canvas. Callers may still stop early (e.g. on a failed rebuild).
 function animateSheet(canvas, url, preview) {
   const image = new Image()
+  let timer
+  let stopped = false
+  const stop = () => {
+    if (stopped) return
+    stopped = true
+    if (timer !== undefined) clearInterval(timer)
+    timer = undefined
+    sheetStops.delete(stop)
+  }
+  sheetStops.add(stop)
   image.onload = () => {
+    if (stopped) return
     const context = canvas.getContext('2d')
     let frame = 0
     const draw = () => {
@@ -421,14 +477,18 @@ function animateSheet(canvas, url, preview) {
       frame = (frame + 1) % preview.columns
     }
     draw()
-    setInterval(draw, preview.frameMs)
+    timer = setInterval(draw, preview.frameMs)
   }
   image.src = url
+  return stop
 }
 
 async function renderCharacters() {
   const data = await api('/characters')
   const list = $('characters')
+  // Stop the previous round before its cards leave the DOM. Keeping the old
+  // cards alive when /characters fails leaves their timers valid too.
+  releasePreviews()
   list.replaceChildren(...data.list.map((item) => {
     const card = document.createElement('button')
     card.type = 'button'
@@ -442,12 +502,14 @@ async function renderCharacters() {
     if (item.source === 'builtin') {
       art = document.createElement('img')
       art.alt = item.name
-      blobUrl(`/characters/preview?id=${encodeURIComponent(item.id)}`).then((url) => { art.src = url }).catch(() => {})
+      blobUrl(`/characters/preview?id=${encodeURIComponent(item.id)}`).then((url) => { if (url) art.src = url }).catch(() => {})
     } else {
       art = document.createElement('canvas')
       art.width = data.preview.cell.width
       art.height = data.preview.cell.height
-      blobUrl(`/characters/preview?id=${encodeURIComponent(item.id)}`).then((url) => animateSheet(art, url, data.preview)).catch(() => {})
+      blobUrl(`/characters/preview?id=${encodeURIComponent(item.id)}`).then((url) => {
+        if (url) animateSheet(art, url, data.preview)
+      }).catch(() => {})
     }
     card.append(art, name, source)
     card.addEventListener('click', () => {
@@ -499,12 +561,20 @@ $('texts-reset').addEventListener('click', () => {
   }
 })
 
+// Closing, reloading or freezing the page into the back/forward cache all end
+// up here: stop the refresh poll and tear down every per-card timer and URL.
+window.addEventListener('pagehide', () => {
+  clearInterval(refreshTimer)
+  refreshTimer = undefined
+  releasePreviews()
+})
+
 if (!token) document.body.classList.add('offline')
 else {
   refresh()
   renderCharacters().catch(() => {})
   renderTexts().catch(() => {})
-  setInterval(refresh, 5000)
+  refreshTimer = setInterval(refresh, 5000)
 }
 </script>
 </body>

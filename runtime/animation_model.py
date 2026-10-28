@@ -60,17 +60,36 @@ class Player:
     def frame(self) -> str:
         return self.active_clip.frames[self.frame_index]
 
-    def play(self, clip_name: str, loop: bool | None = None) -> bool:
+    def play(self, clip_name: str, loop: bool | None = None, settle_last_frame: bool = False) -> bool:
+        """Switch clips; playing the running clip again does not restart it.
+
+        `settle_last_frame` is for reduced motion: a one-shot clip then rests
+        on its end pose (the result) instead of being frozen on its first
+        frame, because the helper never animates it under reduced motion.
+        """
         if clip_name not in self.clips:
             return False
         if clip_name == self.active_clip_name and not self.held:
+            if settle_last_frame:
+                self._hold_last_frame()
             return True
         self.active_clip_name = clip_name
         self.loop = self.active_clip.loop if loop is None else loop
         self.frame_index = 0
         self.frame_elapsed_ms = 0
         self.held = False
+        if settle_last_frame:
+            self._hold_last_frame()
         return True
+
+    def _hold_last_frame(self) -> None:
+        """Rest on a one-shot clip's final pose; looping clips stay put."""
+        clip = self.active_clip
+        if self.loop or not clip.frames:
+            return
+        self.frame_index = len(clip.frames) - 1
+        self.frame_elapsed_ms = 0
+        self.held = True
 
     def advance(self, elapsed_ms: int) -> str | None:
         """Move on; return the clip name when a pass ended during this step."""

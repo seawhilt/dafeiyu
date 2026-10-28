@@ -155,10 +155,27 @@ export function prepareCharacterAssets(characterId, { home, root = codexPetsRoot
   return target
 }
 
+// The settings page asks for a preview whenever the list renders. A codex
+// sheet can be tens of megabytes, so keep the last read per file and
+// invalidate it when the pack is replaced.
+const sheetCache = new Map()
+
 /** The spritesheet of a codex character, for the settings page preview. */
 export function codexSheet(characterId, root = codexPetsRoot()) {
   const dir = codexPetDir(characterId, root)
-  return dir ? readFileSync(join(dir, SHEET_FILE)) : undefined
+  if (!dir) return undefined
+  const file = join(dir, SHEET_FILE)
+  let mtime
+  try {
+    mtime = statSync(file).mtimeMs
+    const cached = sheetCache.get(file)
+    if (cached && cached.mtime === mtime) return cached.bytes
+  } catch {
+    return undefined
+  }
+  const bytes = readFileSync(file)
+  sheetCache.set(file, { mtime, bytes })
+  return bytes
 }
 
 export const CODEX_PREVIEW = Object.freeze({ cell: CELL, columns: FRAMES.idle, row: ROWS.idle, frameMs: FRAME_MS })

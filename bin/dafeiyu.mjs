@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { appendFileSync, mkdirSync } from 'node:fs'
+import { appendFileSync, mkdirSync, rmSync } from 'node:fs'
 import {
   claudeHooksInstalled,
   claudeSettingsPath,
@@ -48,7 +48,14 @@ async function runDaemon() {
   mkdirSync(paths.home, { recursive: true })
   if (!acquireLock(paths)) return
   const logger = fileLogger(paths.log)
-  const daemon = await startDaemon({ paths, logger, onExit: () => process.exit(0) })
+  let daemon
+  try {
+    daemon = await startDaemon({ paths, logger, onExit: () => process.exit(0) })
+  } catch (error) {
+    // A failed start must not leave a lock that looks like a live daemon.
+    rmSync(paths.lock, { force: true })
+    throw error
+  }
   for (const signal of ['SIGINT', 'SIGTERM']) process.once(signal, () => void daemon.close(signal))
 }
 

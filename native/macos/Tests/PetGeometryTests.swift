@@ -65,4 +65,55 @@ final class PetGeometryTests: XCTestCase {
         XCTAssertEqual(PetGeometry.tilt(forSpeed: -400), -5)
         XCTAssertEqual(PetGeometry.tilt(forSpeed: 99_999), PetGeometry.maxTilt)
     }
+
+    // MARK: - Display seams
+
+    private let leftScreen = CGRect(x: 0, y: 0, width: 1000, height: 800)
+    private let rightScreen = CGRect(x: 1000, y: 0, width: 1000, height: 800)
+
+    func testOnlyRealDisplayEdgesCountAsDockSides() {
+        let screens = [leftScreen, rightScreen]
+        let leftEdges = PetGeometry.outerEdges(of: leftScreen, among: screens)
+        let rightEdges = PetGeometry.outerEdges(of: rightScreen, among: screens)
+        // The inner sides are seams, the outer sides are real display edges.
+        XCTAssertTrue(leftEdges.left)
+        XCTAssertFalse(leftEdges.right)
+        XCTAssertFalse(rightEdges.left)
+        XCTAssertTrue(rightEdges.right)
+    }
+
+    func testADropAtTheSeamDoesNotDock() {
+        let edges = PetGeometry.outerEdges(of: leftScreen, among: [leftScreen, rightScreen])
+        // Dropped against the inner side, the pet must stay where it is
+        // instead of sliding between the two displays.
+        XCTAssertNil(PetGeometry.dockEdge(
+            pet: CGRect(x: 810, y: 100, width: 200, height: 220),
+            screen: leftScreen,
+            outerEdges: edges
+        ))
+        // The real outer side still docks.
+        XCTAssertEqual(PetGeometry.dockEdge(
+            pet: CGRect(x: -40, y: 100, width: 200, height: 220),
+            screen: leftScreen,
+            outerEdges: edges
+        ), "left")
+    }
+
+    func testScreensStackedVerticallyKeepTheirSideEdges() {
+        let upper = CGRect(x: 0, y: 800, width: 1000, height: 800)
+        let lower = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        for edges in [
+            PetGeometry.outerEdges(of: lower, among: [upper, lower]),
+            PetGeometry.outerEdges(of: upper, among: [upper, lower]),
+        ] {
+            XCTAssertTrue(edges.left)
+            XCTAssertTrue(edges.right)
+        }
+    }
+
+    func testASingleScreenKeepsBothDockSides() {
+        let edges = PetGeometry.outerEdges(of: leftScreen, among: [leftScreen])
+        XCTAssertTrue(edges.left)
+        XCTAssertTrue(edges.right)
+    }
 }

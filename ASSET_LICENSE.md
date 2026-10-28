@@ -19,12 +19,13 @@ transparent WebP frame sequences on one shared crop window (see
 `scripts/import_dshpet_webm.py`).
 
 The current import is pinned to upstream commit
-[`549fff2ea33c2acfb16612c76912c6137da4a758`](https://github.com/PC2005-cloud/dsh-pet/tree/549fff2ea33c2acfb16612c76912c6137da4a758/dsh-pet/assets/webm).
-`assets/pet-manifest.json` records each source video's SHA-256 and exact frame
-window, plus the common crop and encoding settings. Touch and idle actions
-retain the complete source entrance and exit; the dragging / landing clips
-split one source into its suspended loop and complete return to rest. Stretch
-and yawn frames come from the same upstream set.
+[`eabaf20d4e19e8ac5ac2230d9de0f854a81a7f7b`](https://github.com/PC2005-cloud/dsh-pet/tree/eabaf20d4e19e8ac5ac2230d9de0f854a81a7f7b/dsh-pet/assets/webm).
+`assets/pet-manifest.json` records the same revision in `assetSource.commit`,
+along with each source video's SHA-256 and exact frame window, plus the common
+crop and encoding settings. Touch and idle actions retain the complete source
+entrance and exit; the dragging / landing clips split one source into its
+suspended loop and complete return to rest. Stretch and yawn frames come from
+the same upstream set.
 
 They remain subject to the upstream MIT license, bundled verbatim as
 `assets/dsh-pet-LICENSE.txt` and shipped in the npm package. No warranty is
@@ -45,8 +46,11 @@ cursor images shipped by the Chromium project in
 They are licensed under the **BSD 3-Clause license** held by The Chromium
 Authors and are **not covered by the MIT code license**; both licenses are
 permissive and compatible. The upstream license text and a provenance note
-with the upstream URLs and file digests are bundled in `assets/cursors/`
-(`LICENSE`, `README.md`), and the digests are pinned by the test suite.
+with the upstream URLs and MD5 digests are bundled in `assets/cursors/`
+(`LICENSE`, `README.md`). The MD5 digests are checked by
+`runtime/tests/test_glove_cursor.py`, and `test/package-files.test.js` pins the
+SHA-256 digests of the same two files, so an accidental edit or swap fails the
+test suite.
 
 ## Disclaimer
 

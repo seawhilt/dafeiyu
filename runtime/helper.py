@@ -20,14 +20,18 @@ from typing import Any, TextIO
 
 try:
     from .animation_model import Player, crossfade_duration
-    from .layout_store import default_layout_path, load_layout, save_layout
+    from .layout_store import appkit_to_qt_y, default_layout_path, load_layout, pet_position_from_layout, save_layout
     from .asset_paths import bundle_root
-    from .pet_geometry import bubble_top, dock_angle, dock_edge, docked_x, position_window, tilt_for_speed
+    from .pet_geometry import (
+        bubble_top, dock_angle, dock_edge, docked_x, position_window, screen_outer_edges, tilt_for_speed,
+    )
 except ImportError:
     from animation_model import Player, crossfade_duration
-    from layout_store import default_layout_path, load_layout, save_layout
+    from layout_store import appkit_to_qt_y, default_layout_path, load_layout, pet_position_from_layout, save_layout
     from asset_paths import bundle_root
-    from pet_geometry import bubble_top, dock_angle, dock_edge, docked_x, position_window, tilt_for_speed
+    from pet_geometry import (
+        bubble_top, dock_angle, dock_edge, docked_x, position_window, screen_outer_edges, tilt_for_speed,
+    )
 
 
 PROTOCOL_VERSION = 1
@@ -58,8 +62,11 @@ ACTION_MENU = (
 WHISPER_MENU = (("关闭", "off"), ("偶尔说（15～30 分钟）", "low"), ("话多（5～10 分钟）", "high"))
 # A decoded 412x344 ARGB32 frame costs ~0.55 MB, so keeping every frame of a
 # 24 fps set resident would need well over a gigabyte. Frames are read from disk
-# once as compressed bytes and decoded through a bounded cache instead.
+# on demand as compressed bytes and decoded through a bounded cache instead.
 DECODED_FRAME_CACHE = 24
+# The whale pack is ~14,700 WebP frames (~236 MB). Only this much compressed
+# frame data is kept resident; older frames are dropped and re-read when seen.
+COMPRESSED_FRAME_CACHE_BYTES = 64 * 1024 * 1024
 # Drag lean: how fast it follows the pointer, and how long a pause rights it.
 TILT_EASING = 0.2
 TILT_SETTLE_S = 0.09
@@ -436,24 +443,16 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self.sheet_pixmap = QPixmap()
                 if not self.sheet_pixmap.loadFromData((asset_root / str(sheet["file"])).read_bytes(), "WEBP"):
                     raise RuntimeError("Unable to load the character sprite sheet")
-            self.frame_sources: dict[str, bytes] = {}
-            for clip in self.model.clips.values():
-                for frame in clip.frames:
-                    if frame in self.frame_sources:
-                        continue
-                    if sheet:
-                        self.frame_sources[frame] = b""
-                        continue
-                    try:
-                        self.frame_sources[frame] = (asset_root / frame).read_bytes()
-                    except OSError as error:
-                        raise RuntimeError(f"Unable to load BigFish frame: {frame}") from error
+            # Frame bytes are read from disk on demand and bounded; the full
+            # whale set alone would keep ~236 MB resident.
+            self.frame_sources: OrderedDict[str, bytes] = OrderedDict()
+            self.frame_source_bytes = 0
             self.decoded_frames: OrderedDict[str, QPixmap] = OrderedDict()
-            # Fail here, not on the first paint, when the assets are unreadable or
-            # the bundled Qt has no WebP image plugin.
-            for clip in self.model.clips.values():
-                if clip.frames:
-                    self._pixmap(clip.frames[0])
+            # Fail here, not on the first paint, when the starting frame is
+            # unreadable or the bundled Qt has no WebP image plugin. Only this
+            # one frame is read: decoding all 108 clips up front read the whole
+            # asset set before the window even appeared.
+            self._pixmap(self.model.frame)
             self.decoded_frames.clear()
 
             self.display_state = "IDLE"
@@ -494,6 +493,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.drag_speed = 0.0
             self.last_drag_sample: tuple[int, float] | None = None
             self.last_tick_ms = self._now_ms()
+            # Whether the last tick painted the bubble; a time-based status or
+            # overlay expiry changes the visible card without a message.
+            self.last_tick_bubble_visible = False
             self.fade_from_pixmap: QPixmap | None = None
             self.fade_started = 0.0
             self.fade_duration = 0.15
@@ -656,6 +658,26 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             if self.animation_timer.interval() != wanted:
                 self.animation_timer.setInterval(wanted)
 
+        def _frame_data(self, frame: str) -> bytes:
+            """Compressed frame bytes, read on demand into a bounded FIFO cache.
+
+            The read happens on the UI thread but is one ~17 KB file, which is
+            cheaper than keeping the whole ~236 MB frame set resident.
+            """
+            cached = self.frame_sources.get(frame)
+            if cached is not None:
+                return cached
+            try:
+                data = (asset_root / frame).read_bytes()
+            except OSError as error:
+                raise RuntimeError(f"Unable to load BigFish frame: {frame}") from error
+            self.frame_sources[frame] = data
+            self.frame_source_bytes += len(data)
+            while self.frame_source_bytes > COMPRESSED_FRAME_CACHE_BYTES and len(self.frame_sources) > 1:
+                _, evicted = self.frame_sources.popitem(last=False)
+                self.frame_source_bytes -= len(evicted)
+            return data
+
         def _pixmap(self, frame: str) -> QPixmap:
             cached = self.decoded_frames.get(frame)
             if cached is not None:
@@ -667,7 +689,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 pixmap = self.sheet_pixmap.copy(int(column) * width, int(row) * height, width, height)
             else:
                 pixmap = QPixmap()
-                if not pixmap.loadFromData(self.frame_sources[frame], "WEBP"):
+                if not pixmap.loadFromData(self._frame_data(frame), "WEBP"):
                     raise RuntimeError(f"Unable to load BigFish frame: {frame}")
             self.decoded_frames[frame] = pixmap
             while len(self.decoded_frames) > DECODED_FRAME_CACHE:
@@ -676,10 +698,13 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
 
         def _tick(self) -> None:
             now_ms = self._now_ms()
+            previous_ms = self.last_tick_ms
             elapsed_ms = max(0, now_ms - self.last_tick_ms)
             self.last_tick_ms = now_ms
             previous_frame = self.model.frame
             previous_clip = self.model.active_clip_name
+            previous_tilt = self.tilt
+            was_bubble_visible = self.last_tick_bubble_visible
             # The daemon decides what follows each pass; report it. A docked
             # pet holds still.
             ended = None if self.dock_edge else self.model.advance(0 if self.reduced_motion else elapsed_ms)
@@ -687,10 +712,33 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 emit_reply("pass", clip=ended)
             self._ease_tilt()
             self._sync_frame_transition(previous_frame, previous_clip)
+            overlay_expired = False
             if self.overlay_deadline_ms is not None and now_ms >= self.overlay_deadline_ms:
                 self._clear_overlay()
+                overlay_expired = True
+            # A status card can expire purely with time; message-driven repaints
+            # cannot see that, so remember the tick it happens on.
+            status_expired = (
+                self.status_deadline_ms is not None
+                and previous_ms < self.status_deadline_ms
+                and now_ms >= self.status_deadline_ms
+            )
             self._rearm_animation_interval()
-            self.update()
+            bubble_visible = self._bubble_visible()
+            self.last_tick_bubble_visible = bubble_visible
+            # Repaint only when something visible changed. A static (or docked,
+            # or reduced-motion) pet must not be redrawn at the animation poll
+            # rate, which used to run every 8-40 ms.
+            if (
+                self.model.frame != previous_frame
+                or self.model.active_clip_name != previous_clip
+                or self.tilt != previous_tilt
+                or self.fade_from_pixmap is not None
+                or overlay_expired
+                or status_expired
+                or bubble_visible != was_bubble_visible
+            ):
+                self.update()
 
         def _ease_tilt(self) -> None:
             if not self.dragging or self.reduced_motion:
@@ -717,6 +765,26 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 return None
             return geometry.x(), geometry.y(), geometry.width(), geometry.height()
 
+        def _screen_outer_edges(self) -> tuple[bool, bool]:
+            """Which sides of the current screen are real display edges.
+
+            A pet dropped against the seam between two displays must not dock:
+            it would slide between them. Use physical screen geometry (not the
+            available area) so insets from bars and docks do not hide a seam.
+            """
+            pet_width, pet_height = self._pet_size()
+            screen = QApplication.screenAt(
+                QPoint(self.pet_x + pet_width // 2, self.pet_y + pet_height // 2)
+            ) or QApplication.primaryScreen()
+            if screen is None:
+                return True, True
+            own = screen.geometry()
+            screens = [
+                (geometry.x(), geometry.y(), geometry.width(), geometry.height())
+                for geometry in (candidate.geometry() for candidate in QApplication.screens())
+            ]
+            return screen_outer_edges((own.x(), own.y(), own.width(), own.height()), screens)
+
         def _set_dock(self, edge: Any) -> None:
             """Dock on a screen side, or come back out (None)."""
             edge = edge if edge in {"left", "right"} else None
@@ -734,7 +802,16 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self._clear_overlay()
                 self._sync_bubble_size()
                 self._place_docked()
+            elif self.dragging:
+                # The daemon sends DOCK null as soon as a docked pet is
+                # grabbed. Moving or resizing the window now would break the
+                # grab offset under the pointer; _finish_drag restores the
+                # normal window around the same anchor.
+                self.dock_edge = None
+                self.undocked_pet = None
             else:
+                # A plain click still brings the pet back to the resting spot
+                # it was docked from.
                 self.dock_edge = None
                 self._sync_bubble_size()
                 if self.undocked_pet is not None:
@@ -750,7 +827,11 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 return
             pet_width, pet_height = self._pet_size()
             self.pet_x = docked_x(self.dock_edge, (pet_width, pet_height), screen)
-            self.move(self.pet_x - (self.width() - pet_width) // 2, self.pet_y - (self.height() - pet_height - 8))
+            # A quarter turn needs pet_width of vertical room; the docked window
+            # grows to fit and the pet is vertically centred in it. Moving the
+            # window up by that inset keeps the pet's screen centre unchanged.
+            pet_bottom_inset = max(0, (self.height() - pet_height) // 2)
+            self.move(self.pet_x - (self.width() - pet_width) // 2, self.pet_y - pet_bottom_inset)
             self.update()
 
         def _play(self, message: dict[str, Any]) -> None:
@@ -760,7 +841,10 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 return
             previous_frame, previous_clip = self.model.frame, self.model.active_clip_name
             loop = message.get("loop")
-            if self.model.play(clip, loop if isinstance(loop, bool) else None):
+            # Reduced motion never advances frames, so a one-shot success/error
+            # clip would freeze on its first frame; rest on the end pose.
+            settle = self.reduced_motion
+            if self.model.play(clip, loop if isinstance(loop, bool) else None, settle_last_frame=settle):
                 allow_fade = not (self.dragging or clip.startswith("dragging"))
                 self._sync_frame_transition(previous_frame, previous_clip, allow_fade=allow_fade)
                 self.last_tick_ms = self._now_ms()
@@ -798,9 +882,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             if duration is None:
                 self.fade_from_pixmap = None
                 return
-            self.fade_from_pixmap = (
-                self._pixmap(previous_frame) if previous_frame in self.frame_sources else None
-            )
+            # The previous frame was on screen a moment ago, so its bytes are
+            # either cached or one small disk read away.
+            self.fade_from_pixmap = self._pixmap(previous_frame) if previous_frame else None
             self.fade_started = time.monotonic()
             self.fade_duration = duration
 
@@ -817,9 +901,20 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 return
             self.dragging = False
             self.last_drag_sample = None
+            # A pet dragged off a dock was living in the taller docked window;
+            # restore the upright frame. The caller re-anchors the window right
+            # after this, so the pet does not move on screen.
+            old_size = (self.width(), self.height())
+            self._apply_window_size()
+            if (self.width(), self.height()) != old_size:
+                self._move_to_pet(self.pet_x, self.pet_y)
             # Report a drop by a screen side; the daemon decides whether to dock.
             screen = self._screen_rect()
-            edge = dock_edge((self.pet_x, self.pet_y, *self._pet_size()), screen) if screen else None
+            edge = (
+                dock_edge((self.pet_x, self.pet_y, *self._pet_size()), screen, self._screen_outer_edges())
+                if screen
+                else None
+            )
             if edge:
                 emit_reply("input", type="drag-end", edge=edge)
             else:
@@ -839,6 +934,10 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             return state in self.bubble_states
 
         def _sync_bubble_size(self) -> None:
+            if self.dragging:
+                # Resizing now would shift the character inside the window and
+                # break the grab offset; _finish_drag applies the new size.
+                return
             old_size = (self.width(), self.height())
             self._apply_window_size()
             if (self.width(), self.height()) != old_size:
@@ -856,7 +955,13 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 bubble_height = self._card_height()
                 self.setFixedSize(max(pet_area, bubble_width + 28), pet_height + bubble_height + 34)
             else:
-                self.setFixedSize(pet_area, pet_height + 26)
+                height = pet_height + 26
+                if self.dock_edge is not None:
+                    # Turned a quarter, the pet spans its width vertically; a
+                    # window reserved for the upright height would clip the
+                    # docked head.
+                    height = max(height, pet_width + 16)
+                self.setFixedSize(pet_area, height)
 
         def _screen_geometry_at(self, x: int, y: int):
             screen = QApplication.screenAt(QPoint(x, y)) or QApplication.primaryScreen()
@@ -911,20 +1016,30 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 card_y = min(pet_y + pet_height + tail, max(7, self.height() - card_height - 7))
             return card_x, card_y, card_width, card_height
 
+        def _primary_screen_height(self) -> int | None:
+            """Primary display height, the flip reference for AppKit layouts."""
+            screen = QApplication.primaryScreen()
+            return screen.geometry().height() if screen is not None else None
+
         def _restore_visible_position(self) -> None:
             pet_width, pet_height = self._pet_size()
             top_offset = self.height() - pet_height - 8
             center_offset = (self.width() - pet_width) // 2
-            saved_pet_x = self.layout.get("petX")
-            saved_pet_y = self.layout.get("petY")
-            if isinstance(saved_pet_x, int) and isinstance(saved_pet_y, int):
-                pet_x, pet_y = saved_pet_x, saved_pet_y
+            screen_height = self._primary_screen_height()
+            # Both helpers share the layout file; a native-macOS layout stores
+            # AppKit bottom-left y and is converted using the display height.
+            saved_pet = pet_position_from_layout(self.layout, pet_height, screen_height)
+            if saved_pet is not None:
+                pet_x, pet_y = saved_pet
             else:
                 saved_x = self.layout.get("x")
                 saved_y = self.layout.get("y")
                 if isinstance(saved_x, int) and isinstance(saved_y, int):
-                    # Legacy layouts stored the window position.  Recreate the
-                    # pet position that the old centered layout would have had.
+                    # Legacy layouts stored the window position. Convert the
+                    # window's y too when it came from the AppKit helper, then
+                    # recreate the pet position the old centered layout had.
+                    if self.layout.get("coordinateSpace") == "appkit-bottom-left" and screen_height is not None:
+                        saved_y = appkit_to_qt_y(saved_y, self.height(), screen_height)
                     pet_x = saved_x + center_offset
                     pet_y = saved_y + top_offset
                 else:
@@ -948,6 +1063,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 "reducedMotion": self.reduced_motion,
                 "bubbleMode": self.bubble_mode,
                 "bubbleStates": self.bubble_states,
+                # This helper writes Qt top-left window coordinates. save_layout
+                # re-asserts the marker; keeping it here documents the numbers.
+                "coordinateSpace": "qt-top-left",
             }
             try:
                 save_layout(self.layout_path, self.layout)

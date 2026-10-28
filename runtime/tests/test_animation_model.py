@@ -59,6 +59,24 @@ class PlayerTests(unittest.TestCase):
         self.assertFalse(self.player.play("lunch"))
         self.assertEqual(self.player.active_clip_name, "idle")
 
+    def test_reduced_motion_settles_a_one_shot_on_its_last_frame(self) -> None:
+        # The helper never advances frames under reduced motion, so a one-shot
+        # success/error clip must start out on its end pose, not frame 0.
+        self.assertTrue(self.player.play("poke", settle_last_frame=True))
+        self.assertEqual(self.player.frame, "poke/1")
+        self.assertTrue(self.player.held)
+        self.assertIsNone(self.player.advance(0))
+
+    def test_reduced_motion_keeps_a_looping_clip_at_its_first_frame(self) -> None:
+        self.player.play("idle", settle_last_frame=True)
+        self.assertEqual(self.player.frame, "idle/0")
+        self.assertFalse(self.player.held)
+
+    def test_replaying_the_settled_clip_keeps_the_end_pose(self) -> None:
+        self.player.play("poke", settle_last_frame=True)
+        self.player.play("poke", settle_last_frame=True)
+        self.assertEqual(self.player.frame, "poke/1")
+
     def test_drag_clips_switch_without_a_fade(self) -> None:
         self.assertIsNone(crossfade_duration("idle", "dragging"))
         self.assertIsNone(crossfade_duration("idle", "idle"))

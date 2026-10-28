@@ -167,3 +167,18 @@ test('client overlay stays silent when the endpoints or fetch are unavailable', 
   failing.client.apply(ctx)
   await new Promise((resolve) => setImmediate(resolve))
 })
+
+test('the settings card only offers appearance controls for a standalone pet', async () => {
+  const source = await readFile(new URL('../lib/client.js', import.meta.url), 'utf8')
+  const { client } = loadClient(undefined, source)
+
+  // The shared daemon owns the appearance settings (ProviderHub keeps only
+  // openUrl/openLabel from a provider config message), so the card must not
+  // pretend those controls work.
+  assert.equal(typeof client.showsAppearanceSettings, 'function')
+  assert.equal(client.showsAppearanceSettings({ desktopMode: 'standalone' }), true)
+  assert.equal(client.showsAppearanceSettings({ desktopMode: 'shared' }), false)
+  assert.equal(client.showsAppearanceSettings({}), false, 'a host without desktopMode behaves like the shared daemon')
+  assert.equal(client.showsAppearanceSettings(undefined), false)
+  assert.equal(client.showsAppearanceSettings(null), false)
+})

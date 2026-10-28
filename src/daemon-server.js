@@ -17,11 +17,19 @@ export class HttpError extends Error {
 async function readJsonBody(req) {
   const chunks = []
   let bytes = 0
+  let tooLarge = false
   for await (const chunk of req) {
     bytes += chunk.length
-    if (bytes > MAX_BODY_BYTES) throw new HttpError(413, 'request body is too large')
+    // Keep draining instead of throwing mid-stream: breaking out of the async
+    // iterator destroys the request, so the client would see ECONNRESET
+    // instead of the 413. Bound what we retain, not what we read.
+    if (bytes > MAX_BODY_BYTES) {
+      tooLarge = true
+      continue
+    }
     chunks.push(chunk)
   }
+  if (tooLarge) throw new HttpError(413, 'request body is too large')
   try {
     const value = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('not an object')
@@ -54,7 +62,9 @@ export function createDaemonServer({ token, routes, page, binary = {}, logger = 
     ?? Object.entries(table).find(([key]) => key.endsWith('/*')
       && key.startsWith(`${method} `) && pathname.startsWith(key.slice(method.length + 1, -1)))?.[1]
 
-  const server = createServer(async (req, res) => {
+  // Local callers are short-lived CLI/plugin requests. A stalled body should
+  // fail long before Node's 300 s default, and shutdown must not wait for it.
+  const server = createServer({ requestTimeout: 30000 }, async (req, res) => {
     try {
       // Same-origin requests from the settings page carry an Origin header;
       // isLocalRequest rejects any other origin.
@@ -82,7 +92,11 @@ export function createDaemonServer({ token, routes, page, binary = {}, logger = 
         return
       }
       const handler = find(routes, req.method, url.pathname)
-      if (!handler) throw new HttpError(404, 'not found')
+      if (!handler) {
+        // Drain an unread POST body so the 404 response is not lost to a reset.
+        if (req.method === 'POST') req.resume()
+        throw new HttpError(404, 'not found')
+      }
       const body = req.method === 'POST' ? await readJsonBody(req) : undefined
       jsonResponse(res, 200, await handler(body, url))
     } catch (error) {
@@ -92,6 +106,7 @@ export function createDaemonServer({ token, routes, page, binary = {}, logger = 
     }
   })
 
+  let closing
   return {
     async listen() {
       await new Promise((resolve, reject) => {
@@ -100,6 +115,32 @@ export function createDaemonServer({ token, routes, page, binary = {}, logger = 
       })
       return server.address().port
     },
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    /**
+     * Stop accepting connections and force-close whatever is still open after
+     * a short grace period. Without this a stalled request body can keep
+     * `server.close()` waiting for Node's request timeout, and the daemon's
+     * lock/runtime files would never be cleaned up.
+     */
+    close() {
+      if (closing) return closing
+      closing = new Promise((resolve) => {
+        let settled = false
+        let timer
+        const finish = () => {
+          if (settled) return
+          settled = true
+          clearTimeout(timer)
+          resolve()
+        }
+        timer = setTimeout(() => {
+          server.closeIdleConnections?.()
+          server.closeAllConnections?.()
+          finish()
+        }, 1000)
+        timer.unref?.()
+        server.close(finish)
+      })
+      return closing
+    },
   }
 }

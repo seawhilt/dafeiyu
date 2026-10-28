@@ -22,6 +22,7 @@ export function createUsagePoller({
 }) {
   let timer
   let pending = false
+  let afterTurnPending = false
   let stopped = false
 
   const refresh = async () => {
@@ -41,17 +42,33 @@ export function createUsagePoller({
     clearTimeout(timer)
     if (stopped) return
     timer = setTimeout(() => {
-      void refresh().finally(() => schedule(timings.pollMs))
+      void refresh().finally(() => {
+        const nextDelay = afterTurnPending ? timings.afterTurnMs : timings.pollMs
+        afterTurnPending = false
+        schedule(nextDelay)
+      })
     }, delay)
     timer.unref?.()
   }
 
   return {
     start: () => schedule(0),
-    /** A finished turn changes usage; read it again soon. */
-    afterTurn: () => schedule(timings.afterTurnMs),
+    /**
+     * A finished turn changes usage; read it again soon. An in-flight query
+     * cannot be scheduled over: let it finish, then use the after-turn delay
+     * instead of the regular poll interval.
+     */
+    afterTurn: () => {
+      if (stopped) return
+      if (pending) {
+        afterTurnPending = true
+        return
+      }
+      schedule(timings.afterTurnMs)
+    },
     stop() {
       stopped = true
+      afterTurnPending = false
       clearTimeout(timer)
     },
   }

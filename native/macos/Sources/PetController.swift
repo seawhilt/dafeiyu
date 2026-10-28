@@ -61,11 +61,20 @@ final class PetController: NSObject {
     let eventLogURL: URL?
     let snapshotURL: URL?
 
-    private var frameData: [String: Data] = [:]
+    /// Compressed frame bytes are read from disk on demand. The full whale
+    /// set is ~14,700 WebP files (~236 MB); keeping them resident made the
+    /// helper's memory floor enormous. This cache bounds a long session.
+    private var frameBytes: [String: Data] = [:]
+    private var frameBytesOrder: [String] = []
+    private var frameBytesTotal = 0
+    private static let compressedFrameCacheBytes = 64 * 1024 * 1024
     private let imageCache = NSCache<NSString, NSImage>()
     /// Decoded frames are held only in this bounded cache: a 24 fps set is
     /// thousands of frames and each decoded one costs about 0.55 MB.
     private static let decodedFrameCache = 24
+    /// Whether the last tick painted the bubble; used to repaint when a
+    /// time-based status/overlay expiry changes the visible card.
+    private var lastTickBubbleVisible = false
     private var maxFrameWidth: CGFloat = 238
     private var maxFrameHeight: CGFloat = 260
     /// Clips with wide props are drawn centred on the pet and may be wider
@@ -128,6 +137,9 @@ final class PetController: NSObject {
     private static let tiltSettle: CFTimeInterval = 0.09
     private var snapshotSaved = false
     private var quitting = false
+    /// "本次隐藏" hides the pet for the rest of this run; the 2 s keepFront
+    /// re-assert must not pull it back. Relaunching the app shows it again.
+    private var userHidden = false
 
     init(model: ClipPlayer,
          manifest: [String: Any],
@@ -207,6 +219,8 @@ final class PetController: NSObject {
     /// Transparent space above the head inside a frame, in frame pixels.
     private var bubbleHeadroom: CGFloat = 52
 
+    /// Load the clip player's static assets. Frames themselves are read on
+    /// demand in `frameImage(for:)`; only sheet characters are loaded whole.
     private func loadFrames() {
         if let sheet = manifest["spritesheet"] as? [String: Any], let file = sheet["file"] as? String {
             sheetCell = CGSize(width: Self.doubleValue(sheet["cellWidth"]) ?? 0, height: Self.doubleValue(sheet["cellHeight"]) ?? 0)
@@ -214,18 +228,40 @@ final class PetController: NSObject {
                let image = NSImage(data: data) {
                 sheetImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil)
             }
-            imageCache.totalCostLimit = Self.decodedFrameCache * decodedFrameBytes
-            return
-        }
-        for clip in model.clips.values {
-            for frame in clip.frames where frameData[frame] == nil {
-                frameData[frame] = try? Data(contentsOf: assetRoot.appendingPathComponent(frame))
-            }
         }
         imageCache.totalCostLimit = Self.decodedFrameCache * decodedFrameBytes
     }
 
     private var decodedFrameBytes: Int { Int(maxFrameWidth * maxFrameHeight * 4) }
+
+    /// Compressed bytes for one frame, read from disk the first time it is
+    /// shown. Evicts oldest entries in batches so the per-load cost stays
+    /// amortised O(1) on the UI thread.
+    private func compressedFrameBytes(for frame: String) -> Data? {
+        if let cached = frameBytes[frame] { return cached }
+        guard let data = try? Data(contentsOf: assetRoot.appendingPathComponent(frame)) else { return nil }
+        frameBytes[frame] = data
+        frameBytesOrder.append(frame)
+        frameBytesTotal += data.count
+        if frameBytesTotal > Self.compressedFrameCacheBytes {
+            let drop = max(1, frameBytesOrder.count / 8)
+            for evicted in frameBytesOrder.prefix(drop) {
+                if let removed = frameBytes.removeValue(forKey: evicted) {
+                    frameBytesTotal -= removed.count
+                }
+            }
+            frameBytesOrder.removeFirst(drop)
+            // Multiple frames can still overshoot if they are unusually big;
+            // keep the hard bound even then.
+            while frameBytesTotal > Self.compressedFrameCacheBytes, let oldest = frameBytesOrder.first {
+                frameBytesOrder.removeFirst()
+                if let removed = frameBytes.removeValue(forKey: oldest) {
+                    frameBytesTotal -= removed.count
+                }
+            }
+        }
+        return data
+    }
 
     private func frameImage(for frame: String) -> NSImage? {
         let key = frame as NSString
@@ -239,7 +275,7 @@ final class PetController: NSObject {
             imageCache.setObject(image, forKey: key, cost: decodedFrameBytes)
             return image
         }
-        guard let data = frameData[frame], let image = NSImage(data: data) else { return nil }
+        guard let data = compressedFrameBytes(for: frame), let image = NSImage(data: data) else { return nil }
         imageCache.setObject(image, forKey: key, cost: decodedFrameBytes)
         return image
     }
@@ -327,16 +363,37 @@ final class PetController: NSObject {
         // around a ~219pt character (issue #92).
         let showsCard = bubbleMode != "hidden"
         let petArea = max(petWidth + 50, maxClipWidth * scale * pixelScale + 10)
+        var height = petHeight + (showsCard ? cardHeightPoints + 34 : 26)
+        if dockEdge != nil {
+            // Turned a quarter, the pet spans its width vertically. Reserve
+            // that much room (plus a margin) or the docked head gets clipped.
+            height = max(height, petWidth + 16)
+        }
         return NSSize(
             width: showsCard ? max(petArea, cardWidthPoints + 28) : petArea,
-            height: petHeight + (showsCard ? cardHeightPoints + 34 : 26)
+            height: height
         )
+    }
+
+    /// The window was sized for the current dock mode, keeping its origin.
+    /// The caller repositions the window afterwards.
+    private func applyWindowSize() {
+        guard let panel = panel, let contentView = contentView else { return }
+        let size = windowSize()
+        guard panel.frame.size != size else { return }
+        panel.setContentSize(size)
+        contentView.frame = NSRect(origin: .zero, size: size)
     }
 
     func petRect() -> NSRect {
         let viewSize = contentView?.bounds.size ?? windowSize()
+        // Derive both offsets from the anchor's real window-relative position,
+        // like the Qt helper does. The bottom inset changes between docked
+        // (vertically centred under the quarter turn) and undocked (8 pt), so
+        // it must follow the window, not assume the undocked layout.
         let offsetX = min(max(petX - (panel?.frame.origin.x ?? 0), 0), viewSize.width - petWidth)
-        return NSRect(x: offsetX, y: viewSize.height - petHeight - 8, width: petWidth, height: petHeight)
+        let offsetY = min(max(petY - (panel?.frame.origin.y ?? 0), 0), viewSize.height - petHeight)
+        return NSRect(x: offsetX, y: viewSize.height - petHeight - offsetY, width: petWidth, height: petHeight)
     }
 
     func bubbleRect() -> NSRect {
@@ -388,16 +445,13 @@ final class PetController: NSObject {
 
     private func restorePosition() {
         let layout = PetLayout.load(from: layoutURL)
-        let screenHeight = NSScreen.main?.frame.height ?? 982
-        if let px = layout.petX, let py = layout.petY {
-            let ax = CGFloat(px)
-            var ay = CGFloat(py)
-            if layout.coordinateSpace == nil && ay < screenHeight * 0.5 {
-                // Legacy Qt layout stores top-left coordinates; convert to
-                // AppKit bottom-left before first use.
-                ay = screenHeight - (ay + petHeight)
-            }
-            moveToPet(ax, ay)
+        // Both helpers share the layout file; a Qt layout stores top-left y
+        // and is flipped by the primary display height. The primary display
+        // anchors AppKit's global coordinate space, so use its height rather
+        // than whichever screen currently has focus.
+        let screenHeight = Double(NSScreen.screens.first?.frame.height ?? NSScreen.main?.frame.height ?? 982)
+        if let pet = layout.petPosition(petHeight: Double(petHeight), screenHeight: screenHeight) {
+            moveToPet(CGFloat(pet.x), CGFloat(pet.y))
         } else {
             let geometry = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1512, height: 982)
             moveToPet(geometry.maxX - petWidth - 24, geometry.minY + 24)
@@ -526,6 +580,9 @@ final class PetController: NSObject {
 
     private func keepFront() {
         guard let panel = panel, !quitting else { return }
+        // "本次隐藏" is a user decision: re-asserting the level here would
+        // order the panel back in ~2 s later. Stay hidden until relaunch.
+        guard !userHidden else { return }
         // Re-assert every 2 s: other apps or full-screen transitions can reset
         // the level/collection behavior, which would hide the pet.
         panel.level = .floating
@@ -535,10 +592,13 @@ final class PetController: NSObject {
 
     private func tick() {
         let now = Self.nowMs()
+        let previousNow = lastTickMs
         let elapsed = max(0, now - lastTickMs)
         lastTickMs = now
         let previousFrame = model.frame
         let previousClip = model.activeClipName
+        let previousTilt = tilt
+        let wasBubbleVisible = lastTickBubbleVisible
         // The daemon decides what follows each pass; report it. A docked pet
         // holds still.
         if dockEdge == nil, let ended = model.advance(elapsedMs: reducedMotion ? 0 : elapsed) {
@@ -546,13 +606,35 @@ final class PetController: NSObject {
         }
         easeTilt()
         syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
+        var overlayExpired = false
         if let deadline = overlayDeadlineMs, now >= deadline {
             clearOverlay()
+            overlayExpired = true
+        }
+        // A status card can expire purely with time; the message-driven
+        // redraws cannot see that, so remember the tick it happens on.
+        var statusExpired = false
+        if let deadline = statusDeadlineMs, previousNow < deadline, now >= deadline {
+            statusExpired = true
         }
         if animTimer?.timeInterval != animationInterval {
             startAnimTimer()
         }
-        contentView?.needsDisplay = true
+        let isBubbleVisible = bubbleVisible()
+        lastTickBubbleVisible = isBubbleVisible
+        // Repaint only when something visible changed. A static (or docked,
+        // or reduced-motion) pet must not be redrawn at the animation poll
+        // rate, which used to be ~71 Hz.
+        let repaint = model.frame != previousFrame
+            || model.activeClipName != previousClip
+            || tilt != previousTilt
+            || fadeFromFrame != nil
+            || overlayExpired
+            || statusExpired
+            || isBubbleVisible != wasBubbleVisible
+        if repaint {
+            contentView?.needsDisplay = true
+        }
     }
 
     /// Switch to the clip the daemon chose.
@@ -560,7 +642,9 @@ final class PetController: NSObject {
         guard let clip = Self.stringValue(message["clip"]) else { return }
         let previousFrame = model.frame
         let previousClip = model.activeClipName
-        guard model.play(clip, loop: message["loop"] as? Bool) else { return }
+        // Reduced motion never advances frames, so a one-shot success/error
+        // clip would freeze on its first frame; rest on the end pose instead.
+        guard model.play(clip, loop: message["loop"] as? Bool, settleLastFrame: reducedMotion) else { return }
         if dragging || clip.hasPrefix("dragging") {
             fadeFromFrame = nil
         } else {
@@ -594,33 +678,65 @@ final class PetController: NSObject {
             )
             dockEdge = next
             fadeFromFrame = nil
-            placeDocked()
             clearOverlay()
+            placeDocked()
         } else {
             dockEdge = nil
-            if let point = undockedPet { moveToPet(point.x, point.y) }
-            undockedPet = nil
+            if dragging {
+                // The daemon sends DOCK null as soon as a docked pet is
+                // grabbed. Moving or resizing the window now would break the
+                // grab offset under the pointer; endDrag() restores the
+                // normal window frame around the same anchor.
+                undockedPet = nil
+            } else {
+                // A plain click still brings the pet back to the resting spot
+                // it was docked from, next to the same screen side.
+                applyWindowSize()
+                if let point = undockedPet {
+                    moveToPet(point.x, point.y)
+                } else {
+                    moveToPet(petX, petY)
+                }
+                undockedPet = nil
+            }
         }
         saveLayout()
         updateClickThrough()
         contentView?.needsDisplay = true
     }
 
+    private func currentScreen() -> NSScreen? {
+        screenContaining(NSPoint(x: petX + petWidth / 2, y: petY + petHeight / 2))
+            ?? panel?.screen ?? NSScreen.main
+    }
+
     private func currentScreenFrame() -> NSRect {
-        screenContaining(NSPoint(x: petX + petWidth / 2, y: petY + petHeight / 2))?.visibleFrame
-            ?? panel?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
-            ?? NSRect(x: 0, y: 0, width: 1512, height: 982)
+        currentScreen()?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1512, height: 982)
+    }
+
+    /// Which sides of the current screen are real display edges, not seams to
+    /// a neighbouring display: a pet dropped against a seam must not dock.
+    private func currentOuterEdges() -> (left: Bool, right: Bool) {
+        guard let screen = currentScreen() else { return (left: true, right: true) }
+        return PetGeometry.outerEdges(of: screen.frame, among: NSScreen.screens.map { $0.frame })
     }
 
     /// Put the docked pet half behind its screen side; the window may hang
     /// off the screen.
     private func placeDocked() {
         guard let panel = panel, let edge = dockEdge else { return }
+        // A quarter turn needs `petWidth` points of vertical room; grow the
+        // window first so the rotated pet can be centred without clipping.
+        applyWindowSize()
         let size = windowSize()
         let screen = currentScreenFrame()
         petX = PetGeometry.dockedX(edge: edge, petSize: NSSize(width: petWidth, height: petHeight), screen: screen)
         let windowX = petX - (size.width - petWidth) / 2
-        panel.setFrameOrigin(NSPoint(x: windowX, y: petY - 8))
+        // petRect() is vertically centred in the docked window, so the pet's
+        // bottom sits this far above the frame origin. petY itself does not
+        // change while docking, so the pet keeps its screen centre.
+        let petBottomInset = (size.height - petHeight) / 2
+        panel.setFrameOrigin(NSPoint(x: windowX, y: petY - petBottomInset))
     }
 
     /// Tell the daemon about input; it answers with clips and lines.
@@ -687,10 +803,18 @@ final class PetController: NSObject {
         fadeFromFrame = nil
         dragging = false
         lastDragSample = nil
+        // A pet dragged off a dock was living in the taller docked window;
+        // restore the normal frame around the same screen anchor before the
+        // drop is measured.
+        if let panel = panel, panel.frame.size != windowSize() {
+            resizeAndReposition()
+        }
         // Report a drop by a screen side; the daemon decides whether to dock.
         var drop: [String: Any] = ["type": "drag-end"]
         let pet = NSRect(x: petX, y: petY, width: petWidth, height: petHeight)
-        if let edge = PetGeometry.dockEdge(pet: pet, screen: currentScreenFrame()) { drop["edge"] = edge }
+        if let edge = PetGeometry.dockEdge(pet: pet, screen: currentScreenFrame(), outerEdges: currentOuterEdges()) {
+            drop["edge"] = edge
+        }
         report("input", drop)
         saveLayout()
         updateClickThrough()
@@ -945,6 +1069,9 @@ final class PetController: NSObject {
     }
 
     @objc private func hidePet(_ sender: Any?) {
+        // "本次隐藏" must stay hidden until the app is relaunched. The 2 s
+        // keepFront timer re-asserts the panel otherwise; the flag stops it.
+        userHidden = true
         panel?.orderOut(nil)
     }
 

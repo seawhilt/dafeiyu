@@ -10,10 +10,37 @@ enum PetGeometry {
     /// Drag speed, in points per second, per degree of lean.
     static let tiltSpeedPerDegree: CGFloat = 80
 
+    /// Which sides of `screen` are real display edges rather than seams to a
+    /// neighbouring display. Two screens meeting at a seam must not both dock.
+    static func outerEdges(
+        of screen: CGRect,
+        among screens: [CGRect],
+        tolerance: CGFloat = 1
+    ) -> (left: Bool, right: Bool) {
+        let others = screens.filter { $0 != screen }
+        // A neighbour immediately left shares this screen's left edge and
+        // overlaps it vertically; the mirrored test covers the right side.
+        let leftSeam = others.contains {
+            abs($0.maxX - screen.minX) <= tolerance
+                && $0.maxY > screen.minY && $0.minY < screen.maxY
+        }
+        let rightSeam = others.contains {
+            abs($0.minX - screen.maxX) <= tolerance
+                && $0.maxY > screen.minY && $0.minY < screen.maxY
+        }
+        return (left: !leftSeam, right: !rightSeam)
+    }
+
     /// The screen side a pet dropped at `pet` should dock on, if any.
-    static func dockEdge(pet: CGRect, screen: CGRect) -> String? {
-        if pet.minX <= screen.minX + dockSnapDistance { return "left" }
-        if pet.maxX >= screen.maxX - dockSnapDistance { return "right" }
+    /// `outerEdges` comes from `outerEdges(of:among:)`: a seam between two
+    /// displays is not a screen side to dock against.
+    static func dockEdge(
+        pet: CGRect,
+        screen: CGRect,
+        outerEdges: (left: Bool, right: Bool) = (left: true, right: true)
+    ) -> String? {
+        if outerEdges.left && pet.minX <= screen.minX + dockSnapDistance { return "left" }
+        if outerEdges.right && pet.maxX >= screen.maxX - dockSnapDistance { return "right" }
         return nil
     }
 

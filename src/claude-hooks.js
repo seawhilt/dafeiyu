@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -81,16 +81,34 @@ function readSettings(path) {
   return value
 }
 
+function fileMode(path, fallback = 0o600) {
+  try {
+    return statSync(path).mode & 0o777
+  } catch {
+    return fallback
+  }
+}
+
+function writePrivateFile(path, data, mode) {
+  writeFileSync(path, data, { mode })
+  // writeFileSync applies the process umask on creation; restore the intended
+  // mode explicitly so a 0600 settings file never becomes world-readable.
+  try { chmodSync(path, mode) } catch {}
+}
+
 function writeSettings(path, settings) {
   mkdirSync(dirname(path), { recursive: true })
+  const mode = fileMode(path)
   // Back up only a file without our entries, so reinstalling never replaces
   // the user's original with an already-modified copy.
   if (existsSync(path)) {
     const original = readFileSync(path)
-    if (!original.includes(HOOK_MARKER) && !original.includes(STATUSLINE_MARKER)) writeFileSync(`${path}.dafeiyu.bak`, original)
+    if (!original.includes(HOOK_MARKER) && !original.includes(STATUSLINE_MARKER)) {
+      writePrivateFile(`${path}.dafeiyu.bak`, original, mode)
+    }
   }
   const temp = `${path}.${process.pid}.tmp`
-  writeFileSync(temp, `${JSON.stringify(settings, null, 2)}\n`)
+  writePrivateFile(temp, `${JSON.stringify(settings, null, 2)}\n`, mode)
   renameSync(temp, path)
 }
 

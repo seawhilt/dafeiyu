@@ -59,16 +59,32 @@ final class ClipPlayer {
     }
 
     /// Switch clips; playing the running clip again does not restart it.
+    ///
+    /// `settleLastFrame` is for reduced motion: a one-shot clip then rests on
+    /// its end pose (the result) instead of being frozen on its first frame,
+    /// because the helper never animates it under reduced motion.
     @discardableResult
-    func play(_ clipName: String, loop requestedLoop: Bool? = nil) -> Bool {
+    func play(_ clipName: String, loop requestedLoop: Bool? = nil, settleLastFrame: Bool = false) -> Bool {
         guard let clip = clips[clipName] else { return false }
-        if clipName == activeClipName && !held { return true }
+        if clipName == activeClipName && !held {
+            if settleLastFrame { holdLastFrame() }
+            return true
+        }
         activeClipName = clipName
         loop = requestedLoop ?? clip.loop
         frameIndex = 0
         frameElapsedMs = 0
         held = false
+        if settleLastFrame { holdLastFrame() }
         return true
+    }
+
+    /// Rest on a one-shot clip's final pose; looping clips stay put.
+    private func holdLastFrame() {
+        guard !loop, !activeClip.frames.isEmpty else { return }
+        frameIndex = activeClip.frames.count - 1
+        frameElapsedMs = 0
+        held = true
     }
 
     /// Move on; return the clip name when a pass ended during this step.

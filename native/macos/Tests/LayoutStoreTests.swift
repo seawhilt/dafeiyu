@@ -233,4 +233,49 @@ final class LayoutStoreTests: XCTestCase {
         XCTAssertEqual(first.scale, second.scale)
         XCTAssertEqual(first.coordinateSpace, second.coordinateSpace)
     }
+
+    // MARK: - Coordinate space shared with the Qt helper
+
+    func testSavedLayoutIsMarkedAsAppKitBottomLeft() {
+        var layout = PetLayout()
+        layout.petX = 100
+        layout.petY = 200
+        layout.save(to: layoutURL())
+        let onDisk = try! JSONSerialization.jsonObject(with: Data(contentsOf: layoutURL())) as! [String: Any]
+        XCTAssertEqual(onDisk["coordinateSpace"] as? String, "appkit-bottom-left")
+        XCTAssertEqual(PetLayout.load(from: layoutURL()).coordinateSpace, "appkit-bottom-left")
+    }
+
+    func testQtLayoutIsFlippedToAppKitCoordinates() {
+        write(["petX": 100, "petY": 200, "coordinateSpace": "qt-top-left"])
+        let layout = PetLayout.load(from: layoutURL())
+        let position = layout.petPosition(petHeight: 344, screenHeight: 982)
+        let expectedY: Double = 982 - 200 - 344
+        XCTAssertEqual(position?.x, 100.0)
+        XCTAssertEqual(position?.y, expectedY)
+    }
+
+    func testAppKitLayoutKeepsItsStoredCoordinates() {
+        write(["petX": 100, "petY": 200, "coordinateSpace": "appkit-bottom-left"])
+        let layout = PetLayout.load(from: layoutURL())
+        let position = layout.petPosition(petHeight: 344, screenHeight: 982)
+        XCTAssertEqual(position?.x, 100.0)
+        XCTAssertEqual(position?.y, 200.0)
+    }
+
+    func testUnmarkedLegacyLayoutUsesTheTopHalfHeuristic() {
+        write(["petX": 100, "petY": 200])
+        // 200 is in the top half of a 982 pt display, so it is Qt top-left.
+        let flippedY: Double = 982 - 200 - 344
+        XCTAssertEqual(PetLayout.load(from: layoutURL()).petPosition(petHeight: 344, screenHeight: 982)?.y, flippedY)
+
+        write(["petX": 100, "petY": 700])
+        // A bottom-half y cannot be Qt here; keep it as AppKit bottom-left.
+        XCTAssertEqual(PetLayout.load(from: layoutURL()).petPosition(petHeight: 344, screenHeight: 982)?.y, 700.0)
+    }
+
+    func testPetPositionIsNilWithoutAStoredPetAnchor() {
+        write(["x": 10, "y": 20])
+        XCTAssertNil(PetLayout.load(from: layoutURL()).petPosition(petHeight: 344, screenHeight: 982))
+    }
 }

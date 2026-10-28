@@ -171,8 +171,16 @@ export function createEventStream() {
     },
     add(res) {
       clients.add(res)
+      // A subscriber can vanish between writeHead and this call; an unhandled
+      // response error would otherwise reach the host's process handler.
+      res.once?.('error', () => clients.delete(res))
       for (const message of snapshot.values()) {
-        res.write(`data: ${JSON.stringify(message)}\n\n`)
+        try {
+          res.write(`data: ${JSON.stringify(message)}\n\n`)
+        } catch {
+          clients.delete(res)
+          break
+        }
       }
       return () => clients.delete(res)
     },
@@ -312,7 +320,13 @@ function mountCompanion(ctx, config = {}, eventCtx = ctx, logger) {
     if (restartTimer) clearTimeout(restartTimer)
     restartTimer = setTimeout(() => {
       restartTimer = undefined
-      restartRuntime(next)
+      try {
+        restartRuntime(next)
+      } catch (error) {
+        // startRuntime can read the manifest and construct a helper
+        // synchronously; a throw here would otherwise kill the host process.
+        logger.error?.(`agent-dafeiyu failed to restart: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }, 400)
     restartTimer.unref?.()
   }

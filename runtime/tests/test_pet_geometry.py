@@ -8,6 +8,7 @@ from runtime.pet_geometry import (
     dock_edge,
     docked_x,
     position_window,
+    screen_outer_edges,
     tilt_for_speed,
 )
 
@@ -70,3 +71,33 @@ class DockGeometryTests(unittest.TestCase):
         self.assertEqual(tilt_for_speed(400), 5.0)
         self.assertEqual(tilt_for_speed(-400), -5.0)
         self.assertEqual(tilt_for_speed(99999), MAX_TILT)
+
+
+class SeamDockTests(unittest.TestCase):
+    """The display seam between two screens must not accept a dock."""
+
+    LEFT = (0, 0, 1000, 800)
+    RIGHT = (1000, 0, 1000, 800)
+
+    def test_only_real_display_edges_count(self) -> None:
+        left_edges = screen_outer_edges(self.LEFT, [self.LEFT, self.RIGHT])
+        right_edges = screen_outer_edges(self.RIGHT, [self.LEFT, self.RIGHT])
+        # The inner sides are seams: the pet must not dock against them.
+        self.assertEqual(left_edges, (True, False))
+        self.assertEqual(right_edges, (False, True))
+
+    def test_a_drop_at_the_seam_does_not_dock(self) -> None:
+        left_edges = screen_outer_edges(self.LEFT, [self.LEFT, self.RIGHT])
+        # A pet at the right edge of the left screen would slide between them.
+        self.assertIsNone(dock_edge((810, 100, 200, 220), self.LEFT, left_edges))
+        # The real outer edge still docks.
+        self.assertEqual(dock_edge((-40, 100, 200, 220), self.LEFT, left_edges), "left")
+
+    def test_stacked_screens_leave_the_side_edges_outer(self) -> None:
+        upper = (0, 0, 1000, 800)
+        lower = (0, 800, 1000, 800)
+        self.assertEqual(screen_outer_edges(upper, [upper, lower]), (True, True))
+        self.assertEqual(screen_outer_edges(lower, [upper, lower]), (True, True))
+
+    def test_a_single_screen_keeps_both_sides(self) -> None:
+        self.assertEqual(screen_outer_edges(self.LEFT, [self.LEFT]), (True, True))

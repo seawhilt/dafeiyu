@@ -356,7 +356,15 @@ IDLE_MICRO_INTERVALS_MS = {
     "normal": [8000, 15000],
     "lively": [3000, 6000],
 }
-UPSTREAM_COMMIT = "549fff2ea33c2acfb16612c76912c6137da4a758"
+# Provenance for the committed frames. assets/pet-manifest.json records this
+# revision as assetSource.commit, and the per-video SHA-256s it contains are
+# what the asset tests verify. This constant previously carried
+# 549fff2ea33c2acfb16612c76912c6137da4a758; the committed frames and the
+# manifest agree on eabaf20..., so that is the authoritative pin. The frame
+# windows in SELECTION are keyed to the source files listed in the manifest:
+# re-measure them (and regenerate the manifest) if importing another revision,
+# using --source-commit to record which tree was used.
+UPSTREAM_COMMIT = "eabaf20d4e19e8ac5ac2230d9de0f854a81a7f7b"
 
 _OPAQUE = bytes(1 if value > ALPHA_THRESHOLD else 0 for value in range(256))
 
