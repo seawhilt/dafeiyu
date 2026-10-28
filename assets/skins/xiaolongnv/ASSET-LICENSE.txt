@@ -1,0 +1,13 @@
+GPT 小龙女 artwork attribution and restriction
+
+Source: baifanyu-xiaolongnv-main/app/src/main/assets/characters/gpt_dragon_girl/
+Repository README identifies the original author as LIN428924379 and the
+GPT 小龙女 derivative as created by 3108944309zpc-ctrl with the original
+author's consent. The source repository's LICENSE explicitly excludes artwork
+from its MIT grant and limits these images to personal, non-commercial use.
+
+These images are resized adaptations for this desktop pet. They are included
+for the user's personal, non-commercial local installation only. Do not use or
+redistribute them commercially without separate permission from the rights
+holders. Source repository LICENSE and README are available in the user's
+Downloads/baifanyu-xiaolongnv-main directory.

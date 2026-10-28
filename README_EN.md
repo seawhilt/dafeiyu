@@ -32,7 +32,7 @@ npm install -g https://github.com/seawhilt/dafeiyu/releases/latest/download/agen
 
 The package carries the pet program for macOS and Windows (about 280 MB); Linux is unofficial and falls back to the Python helper, which needs `python3` and `PySide6`. Then run `dafeiyu settings` to start the pet and open its settings page, where Claude Code is one click away. To build from source instead: clone the repo, `npx pnpm@11 install --frozen-lockfile`, `npm run build:helper`, `npm link`.
 
-**Upgrade and uninstall**: run `dafeiyu stop` first, then re-run the install command. On Windows this matters: the running daemon holds files in the global install directory, so upgrading without stopping can fail. To pin a version, replace `latest/download/agent-dafeiyu.tgz` with `download/v0.2.5/agent-dafeiyu-0.2.5.tgz`. To uninstall, remove the Claude Code hooks with `dafeiyu uninstall-claude`, stop the daemon with `dafeiyu stop`, then `npm uninstall -g agent-dafeiyu`.
+**Upgrade and uninstall**: run `dafeiyu stop` first, then re-run the install command. On Windows this matters: the running daemon holds files in the global install directory, so upgrading without stopping can fail. To pin a version, replace `latest/download/agent-dafeiyu.tgz` with `download/v0.2.6/agent-dafeiyu-0.2.6.tgz`. To uninstall, remove the Claude Code hooks with `dafeiyu uninstall-claude`, stop the daemon with `dafeiyu stop`, then `npm uninstall -g agent-dafeiyu`.
 
 **Claude Code**: run `dafeiyu install-claude` (or right-click the pet → 设置… → 一键接入). It adds hooks to `~/.claude/settings.json`; `dafeiyu uninstall-claude` removes them. Subscription usage is read every five minutes with `claude -p /usage`, a local command that calls no model and uses no tokens.
 

@@ -21,6 +21,7 @@ const SKINS = Object.freeze([
   ['maid', '女仆装'],
   ['winter_blue', '冬日蓝'],
   ['winter_white', '冬日白'],
+  ['xiaolongnv', '小龙女'],
 ])
 const SKIN_FRAME = Object.freeze({ width: 450, height: 600 })
 // Calibrated to the built-in whale's ~268 px visible idle height (alpha >= 16).
@@ -33,6 +34,7 @@ const SKIN_PIXEL_SCALES = Object.freeze({
   maid: 0.509,
   winter_blue: 0.527,
   winter_white: 0.486,
+  xiaolongnv: 0.508,
 })
 const LOOPING_SKIN_CLIPS = new Set(['idle', 'thinking', 'working', 'review', 'running_right', 'attention', 'tail', 'dragging'])
 const SKIN_EMOTIONS = Object.freeze({

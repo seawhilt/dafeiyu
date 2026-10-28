@@ -55,7 +55,7 @@ export function sanitizeSettings(value) {
       : [...d.bubbleStates],
     includeSubagents: raw.includeSubagents === true,
     whisperLevel: oneOf(raw.whisperLevel, ['off', 'low', 'high'], d.whisperLevel),
-    character: typeof raw.character === 'string' && /^(?:whale|codex:[a-z0-9]+(?:-[a-z0-9]+)*|skin:(?:basin|beret|claude|maid|winter_blue|winter_white))$/u.test(raw.character)
+    character: typeof raw.character === 'string' && /^(?:whale|codex:[a-z0-9]+(?:-[a-z0-9]+)*|skin:(?:basin|beret|claude|maid|winter_blue|winter_white|xiaolongnv))$/u.test(raw.character)
       ? raw.character
       : d.character,
     bubbleText: sanitizeBubbleText(raw.bubbleText),

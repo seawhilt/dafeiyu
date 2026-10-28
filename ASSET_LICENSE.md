@@ -44,6 +44,17 @@ license and any applicable attribution with these assets when redistributing.
 The supplied Winter White sequence is included as its idle animation; the other
 skins use their supplied expression images to match pet states.
 
+## GPT 小龙女 artwork (personal, non-commercial use only)
+
+`assets/skins/xiaolongnv/` contains resized artwork from the user's supplied
+`baifanyu-xiaolongnv-main` source. Its README credits LIN428924379 for the
+original character/art and 3108944309zpc-ctrl for the derivative GPT 小龙女
+artwork, made with the original author's consent. The source LICENSE excludes
+artwork from its MIT grant and restricts it to personal, non-commercial use.
+The local installation retains this restriction in
+`assets/skins/xiaolongnv/ASSET-LICENSE.txt`; commercial use or redistribution
+requires separate permission from the rights holders.
+
 ## Sounds and cursors
 
 The notification sounds under `assets/sounds/` are original procedural audio
