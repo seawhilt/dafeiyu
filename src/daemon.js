@@ -187,7 +187,12 @@ export async function startDaemon({
     onSettingsChange,
     onInput: (report) => director.input(report),
     onPass: (report) => director.passEnded(report.clip),
-    onClosed() {
+    onClosed(report) {
+      // Character changes shut down the old helper with reason="host" before
+      // starting its replacement. Only an explicit user close should stop the
+      // shared daemon; treating host shutdowns as user intent made skin changes
+      // close the newly started helper a few hundred milliseconds later.
+      if (report?.reason !== 'user') return
       // "本次关闭" ends this run; the next hook or DSH start brings it back.
       setTimeout(() => void close('user-closed'), CLOSE_GRACE_MS).unref?.()
     },
