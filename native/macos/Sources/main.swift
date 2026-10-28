@@ -105,7 +105,7 @@ app.setActivationPolicy(.accessory)
 
 let environment = ProcessInfo.processInfo.environment
 let webuiURL = environment["DAFEIYU_WEBUI_URL"] ?? "http://127.0.0.1:3080/"
-let model = AnimationModel(manifest: assets.manifest)
+let model = ClipPlayer(manifest: assets.manifest)
 
 if headless {
     ProtocolIO.shared.write([

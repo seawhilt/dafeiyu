@@ -19,12 +19,12 @@ from pathlib import Path
 from typing import Any, TextIO
 
 try:
-    from .animation_model import AnimationModel, crossfade_duration
+    from .animation_model import Player, crossfade_duration
     from .layout_store import default_layout_path, load_layout, save_layout
     from .asset_paths import bundle_root
     from .pet_geometry import bubble_top, position_window
 except ImportError:
-    from animation_model import AnimationModel, crossfade_duration
+    from animation_model import Player, crossfade_duration
     from layout_store import default_layout_path, load_layout, save_layout
     from asset_paths import bundle_root
     from pet_geometry import bubble_top, position_window
@@ -32,7 +32,6 @@ except ImportError:
 
 PROTOCOL_VERSION = 1
 STATES = {"IDLE", "THINKING", "WORKING", "WAITING", "SUCCESS", "ERROR", "DISCONNECTED"}
-ANNOYED_LINE = "别戳啦！再戳我就生气了！"
 # Speech bubble in dsh-pet's style: a white rounded bubble whose tail points
 # at the pet's head. Short lines shrink the bubble to fit.
 CARD_WIDTH = 300
@@ -422,7 +421,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self.bubble_states = [part.strip() for part in configured_bubble_states.split(",") if part.strip()]
             else:
                 self.bubble_states = list(self.layout.get("bubbleStates", ["SUCCESS", "ERROR", "WAITING"]))
-            self.model = AnimationModel(manifest)
+            self.model = Player(manifest)
             # Sprite-sheet characters name frames "cell:<column>:<row>:..." and
             # are cropped from one sheet; drawn at pixelScale times their size.
             sheet = manifest.get("spritesheet")
@@ -490,11 +489,6 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.animation_timer.setTimerType(Qt.TimerType.PreciseTimer)
             self.animation_timer.timeout.connect(self._tick)
             self.animation_timer.start(self._animation_interval_ms())
-            self.micro_timer = QTimer(self)
-            self.micro_timer.setSingleShot(True)
-            self.micro_timer.timeout.connect(self._play_idle_micro)
-            if not self.reduced_motion:
-                self._schedule_micro()
             self.snapshot_saved = False
             self.setWindowTitle("大肥鱼")
             self.setWindowFlags(
@@ -519,8 +513,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self._show_status(
                     str(message.get("message", self.task)),
                     str(message.get("detail", "")),
-                    self.model.base_state,
-                    None if self.model.base_state in {"THINKING", "WORKING", "WAITING", "ERROR"} else 6000,
+                    self.status_state,
+                    None if self.status_state in {"THINKING", "WORKING", "WAITING", "ERROR"} else 6000,
                 )
             elif kind == "tasks":
                 raw_tasks = message.get("tasks")
@@ -530,25 +524,18 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self._apply_config(message)
             elif kind == "say":
                 self._say(message)
+            elif kind == "play":
+                self._play(message)
             elif kind == "balance":
                 self.balance_summary = str(message.get("summary", ""))[:200]
                 self._sync_bubble_size()
             elif kind in {"state", "pulse"}:
-                previous_base_state = self.model.base_state
+                # Text and alerts only; the daemon sends the clip separately.
                 state = str(message.get("state", "IDLE"))
                 self.display_state = state
                 if kind == "pulse":
                     ttl_ms = max(250, int(message.get("ttlMs", 1800)))
-                    resume_state = str(message.get("resumeState", self.model.base_state))
-                    self.model.apply_pulse(
-                        state,
-                        ttl_ms,
-                        self._now_ms(),
-                        resume_state,
-                        message.get("resumeActivity"),
-                        complete_clip=not self.reduced_motion,
-                    )
-                    ttl_ms = self.model.pulse_deadline_ms - self._now_ms()
+                    resume_state = str(message.get("resumeState", self.status_state))
                     self._show_status(
                         str(message.get("resumeMessage", self.LABELS.get(resume_state, resume_state))),
                         str(message.get("resumeDetail", "")),
@@ -564,11 +551,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                     if state in {"SUCCESS", "ERROR"}:
                         self._notify_alert(state)
                 else:
-                    activity = None if self.reduced_motion else message.get("activity")
-                    self.model.apply_state(state, activity)
-                    self.display_state = self.model.pulse_state or state
-                    if self.model.pulse_state is None:
-                        self._clear_overlay()
+                    self._clear_overlay()
                     persistent = state in {"THINKING", "WORKING", "WAITING", "ERROR"}
                     self._show_status(
                         str(message.get("message", self.LABELS.get(state, state))),
@@ -576,8 +559,6 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                         state,
                         None if persistent else 4200,
                     )
-                if previous_base_state != self.model.base_state and not self.reduced_motion:
-                    self._schedule_micro()
             self._sync_frame_transition(previous_frame, previous_clip)
             self._sync_bubble_size()
             self.update()
@@ -587,12 +568,6 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
         def _set_reduced_motion(self, enabled: bool) -> None:
             self.reduced_motion = enabled
             self.animation_timer.setInterval(self._animation_interval_ms())
-            if enabled:
-                self.micro_timer.stop()
-                if not self.dragging:
-                    self.model.clear_overlay()
-            else:
-                self._schedule_micro()
 
         def _apply_config(self, message: dict[str, Any]) -> None:
             """Apply a live CONFIG message without restarting the window."""
@@ -627,8 +602,6 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             activity_level = message.get("activityLevel")
             if activity_level in {"quiet", "normal", "lively"}:
                 self.activity_level = activity_level
-                if not self.reduced_motion:
-                    self._schedule_micro()
             bubble_mode = message.get("bubbleMode")
             if bubble_mode in {"auto", "always", "hidden", "custom"}:
                 self.bubble_mode = bubble_mode
@@ -691,62 +664,45 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             now_ms = self._now_ms()
             elapsed_ms = max(0, now_ms - self.last_tick_ms)
             self.last_tick_ms = now_ms
-            had_pulse = self.model.pulse_state is not None
             previous_frame = self.model.frame
             previous_clip = self.model.active_clip_name
-            model_elapsed = 0 if self.reduced_motion else elapsed_ms
-            self.model.advance(model_elapsed, now_ms)
+            # The daemon decides what follows each pass; report it.
+            ended = self.model.advance(0 if self.reduced_motion else elapsed_ms)
+            if ended is not None:
+                emit_reply("pass", clip=ended)
             self._sync_frame_transition(previous_frame, previous_clip)
-            if had_pulse and self.model.pulse_state is None:
-                self.display_state = self.model.base_state
             if self.overlay_deadline_ms is not None and now_ms >= self.overlay_deadline_ms:
                 self._clear_overlay()
             self._rearm_animation_interval()
             self.update()
 
+        def _play(self, message: dict[str, Any]) -> None:
+            """Switch to the clip the daemon chose."""
+            clip = message.get("clip")
+            if not isinstance(clip, str):
+                return
+            previous_frame, previous_clip = self.model.frame, self.model.active_clip_name
+            loop = message.get("loop")
+            if self.model.play(clip, loop if isinstance(loop, bool) else None):
+                allow_fade = not (self.dragging or clip.startswith("dragging"))
+                self._sync_frame_transition(previous_frame, previous_clip, allow_fade=allow_fade)
+                self.last_tick_ms = self._now_ms()
+
         def _say(self, message: dict[str, Any]) -> None:
-            """Show a fixed chatter line; ordinary lines wait for an idle pet."""
+            """Show a line; ordinary chatter waits for an idle pet."""
             text = str(message.get("message", "")).strip()[:80]
             if not text or self.dragging:
                 return
-            urgent = message.get("urgent") is True
-            idle = self.model.base_state == "IDLE" and self.model.pulse_state is None
-            if not urgent and not idle:
+            if message.get("urgent") is not True and self.status_state != "IDLE":
                 return
-            if idle and not self.reduced_motion and self.model.overlay_clip_name is None:
-                clip = message.get("clip")
-                if isinstance(clip, str) and clip in self.model.clips:
-                    self._play_model_overlay(clip, repaint=False)
-                else:
-                    previous_frame, previous_clip = self.model.frame, self.model.active_clip_name
-                    if self.model.play_idle_micro(random.randrange(max(1, len(self.model.idle_micro_clips)))):
-                        self._sync_frame_transition(previous_frame, previous_clip)
             ttl_ms = max(1500, min(15000, int(message.get("ttlMs", 6000))))
-            self._show_overlay(text, self.status_detail, self.model.base_state, ttl_ms)
+            self._show_overlay(text, self.status_detail, self.status_state, ttl_ms)
             self._sync_bubble_size()
             self.update()
 
         def _play_action(self, clip_name: str, line: str) -> None:
-            if self.dragging or self.model.pulse_state is not None:
-                return
-            if clip_name in self.model.interaction_clips:
-                self._play_interaction(clip_name, line)
-                return
-            if not self.reduced_motion and not self._play_model_overlay(clip_name):
-                return
-            self._show_overlay(line, self.status_detail, self.status_state, 2500)
-            self._schedule_micro()
-            self.update()
-
-        def _play_idle_micro(self) -> None:
-            if self.reduced_motion:
-                return
-            previous_frame = self.model.frame
-            previous_clip = self.model.active_clip_name
-            self.model.play_idle_micro(random.randrange(max(1, len(self.model.idle_micro_clips))))
-            self._sync_frame_transition(previous_frame, previous_clip)
-            self.update()
-            self._schedule_micro()
+            if not self.dragging:
+                emit_reply("input", type="action", clip=clip_name, line=line)
 
         def _sync_frame_transition(
             self,
@@ -771,61 +727,17 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.fade_started = time.monotonic()
             self.fade_duration = duration
 
-        def _play_model_overlay(
-            self,
-            clip_name: str,
-            *,
-            allow_fade: bool = True,
-            repaint: bool = True,
-        ) -> bool:
-            previous_frame = self.model.frame
-            previous_clip = self.model.active_clip_name
-            if not self.model.play_overlay(clip_name):
-                return False
-            self._sync_frame_transition(previous_frame, previous_clip, allow_fade=allow_fade)
-            if repaint:
-                self.update()
-            return True
-
         def _begin_drag(self) -> None:
             if self.dragging:
                 return
             self.dragging = True
-            self.micro_timer.stop()
-            played = self._play_model_overlay("dragging", allow_fade=False, repaint=False)
-            if not played:
-                self.animation_timer.stop()
-                return
-            clip = self.model.active_clip
-            if self.reduced_motion or not clip.loop:
-                self.animation_timer.stop()
-            else:
-                self.last_tick_ms = self._now_ms()
-                self.animation_timer.start(self._animation_interval_ms())
+            emit_reply("input", type="drag-start")
 
         def _finish_drag(self) -> None:
             if not self.dragging:
                 return
-            now_ms = self._now_ms()
-            previous_frame = self.model.frame
-            previous_clip = self.model.active_clip_name
-            # Expire an underlying pulse before revealing it after a long drag.
-            self.model.advance(0, now_ms)
-            if self.reduced_motion or not self.model.play_overlay("dragging_release"):
-                self.model.clear_overlay()
-            self._sync_frame_transition(previous_frame, previous_clip, allow_fade=False)
             self.dragging = False
-            self.last_tick_ms = now_ms
-            self.animation_timer.start(self._animation_interval_ms())
-            if not self.reduced_motion:
-                self._schedule_micro()
-
-        def _schedule_micro(self) -> None:
-            if self.reduced_motion:
-                self.micro_timer.stop()
-                return
-            lower, upper = self.model.idle_micro_interval(self.activity_level)
-            self.micro_timer.start(self.model.overlay_remaining_ms + random.randint(lower, upper))
+            emit_reply("input", type="drag-end")
 
         def _bubble_visible(self) -> bool:
             if self.bubble_mode == "hidden":
@@ -837,7 +749,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 return len(self.tasks) >= 2 or self._current_card() is not None
             if len(self.tasks) >= 2:
                 return any(task.get("state") in self.bubble_states for task in self.tasks)
-            state = self.overlay_state or self.status_state or self.model.base_state or "IDLE"
+            state = self.overlay_state or self.status_state or "IDLE"
             return state in self.bubble_states
 
         def _sync_bubble_size(self) -> None:
@@ -1245,30 +1157,21 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 reset_native_cursor()
 
         def _play_click_interaction(self, x: float, y: float) -> None:
+            """Report which part of the pet was clicked; the daemon reacts."""
             pet_x, pet_y, pet_width, pet_height = self._pet_rect()
             relative_x = max(0.0, x - pet_x)
             relative_y = max(0.0, y - pet_y)
             if relative_y < pet_height * 0.45:
-                region, line = "head_pat", "摸摸也不能让我少干活哦~"
+                region = "head_pat"
             elif relative_x > pet_width * 0.72:
-                region, line = "tail", "尾巴不是进度条啦！"
+                region = "tail"
             else:
-                region, line = "poke", "戳我干嘛，任务还在跑呢"
-            clip = self.model.pick_interaction(region, self._now_ms())
-            self._play_interaction(clip, ANNOYED_LINE if clip in self.model.annoyed_clips else line)
-
-        def _play_interaction(self, clip_name: str, message: str) -> None:
-            previous_frame, previous_clip = self.model.frame, self.model.active_clip_name
-            if not self.reduced_motion and not self.model.play_interaction(clip_name, self._now_ms()):
-                return
-            self._sync_frame_transition(previous_frame, previous_clip)
-            self._show_overlay(message, self.status_detail, self.status_state, 1800)
-            self._schedule_micro()
-            self.update()
+                region = "poke"
+            emit_reply("input", type="click", region=region)
 
         def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
             if event.button() == Qt.MouseButton.LeftButton:
-                self._play_interaction("head_pat", "好啦好啦，知道你喜欢我~")
+                emit_reply("input", type="double-click")
 
         def contextMenuEvent(self, event: Any) -> None:
             menu = QMenu(self)

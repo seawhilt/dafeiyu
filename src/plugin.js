@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import Schema from '@deepseek-ai/schemastery'
 import { CompanionReducer } from './companion-reducer.js'
 import { HelperProcess } from './helper-process.js'
+import { createPetDirector } from './pet-director.js'
 import { DaemonBridge } from './daemon-client.js'
 import { createSettingsScope } from './settings-scope.js'
 import { resolveClientTarget } from './client-target.js'
@@ -266,6 +267,7 @@ function mountCompanion(ctx, config = {}, eventCtx = ctx, logger) {
   const settings = createSettingsScope(ctx, Config, config, publicConfig)
 
   let bridge
+  let director
   let reducer
   let runtimeMode
   let restartTimer
@@ -279,6 +281,8 @@ function mountCompanion(ctx, config = {}, eventCtx = ctx, logger) {
   })
 
   const stopRuntime = (reason = 'settings-change') => {
+    director?.stop()
+    director = undefined
     bridge?.stop(reason)
     bridge = undefined
     reducer = undefined
@@ -347,11 +351,22 @@ function mountCompanion(ctx, config = {}, eventCtx = ctx, logger) {
           logger.warn?.(`agent-dafeiyu failed to persist helper settings: ${error instanceof Error ? error.message : String(error)}`)
         })
       },
+      onInput: (report) => director?.input(report),
+      onPass: (report) => director?.passEnded(report.clip),
     }, logger)
     // Mirror every companion message to in-page subscribers without changing
     // what the helper receives; the wrap is per-runtime and dies with it.
     const deliver = bridge.send.bind(bridge)
+    // A standalone helper only renders; the director picks its clips, as the
+    // daemon does in shared mode.
+    if (resolved.desktopMode !== 'shared') {
+      director = createPetDirector({
+        manifest: JSON.parse(readFileSync(join(assetsRoot, 'pet-manifest.json'), 'utf8')),
+        send: deliver,
+      })
+    }
     bridge.send = (message) => {
+      director?.observe(message)
       deliver(message)
       eventStream.broadcast(message)
     }

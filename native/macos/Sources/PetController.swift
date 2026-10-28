@@ -33,7 +33,7 @@ final class PetController: NSObject {
 
     static let persistentStates: Set<String> = ["THINKING", "WORKING", "WAITING", "ERROR"]
 
-    let model: AnimationModel
+    let model: ClipPlayer
     let manifest: [String: Any]
     let assetRoot: URL
     let layoutURL: URL
@@ -45,7 +45,6 @@ final class PetController: NSObject {
     var whisperLevel = ""
     var characters: [(id: String, name: String)] = []
     var character = ""
-    static let annoyedLine = "别戳啦！再戳我就生气了！"
     /// Fallback right-click "动作" menu for manifests without "actionMenu".
     static let actionMenu: [(label: String, clip: String, line: String)] = [
         ("摸摸头", "head_pat", "好啦好啦，知道你喜欢我~"),
@@ -105,7 +104,6 @@ final class PetController: NSObject {
 
     private var animTimer: Timer?
     private var keepFrontTimer: Timer?
-    private var microTimer: Timer?
     private var clickThroughTimer: Timer?
     /// A native menu runs its own tracking loop; keep the panel interactive
     /// until it closes so the timer cannot steal the selection click.
@@ -119,7 +117,7 @@ final class PetController: NSObject {
     private var snapshotSaved = false
     private var quitting = false
 
-    init(model: AnimationModel,
+    init(model: ClipPlayer,
          manifest: [String: Any],
          assetRoot: URL,
          layoutURL: URL,
@@ -480,7 +478,6 @@ final class PetController: NSObject {
             self?.updateClickThrough()
         }
         updateClickThrough()
-        scheduleMicro()
     }
 
     /// AppKit routes a click to this panel before it ever reaches the view
@@ -516,38 +513,17 @@ final class PetController: NSObject {
         panel.orderFrontRegardless()
     }
 
-    private func scheduleMicro() {
-        microTimer?.invalidate()
-        guard !reducedMotion else { return }
-        let range = model.idleMicroInterval(activityLevel: activityLevel)
-        let delay = Double(model.overlayRemainingMs + Int.random(in: range)) / 1000
-        microTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
-            guard let self = self else { return }
-            if !self.dragging {
-                let previousFrame = self.model.frame
-                let previousClip = self.model.activeClipName
-                let index = Int.random(in: 0..<max(1, self.model.idleMicroClips.count))
-                _ = self.model.playIdleMicro(index: index)
-                self.syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
-                self.contentView?.needsDisplay = true
-            }
-            self.scheduleMicro()
-        }
-    }
-
     private func tick() {
         let now = Self.nowMs()
         let elapsed = max(0, now - lastTickMs)
         lastTickMs = now
-        let hadPulse = model.pulseState != nil
         let previousFrame = model.frame
         let previousClip = model.activeClipName
-        let modelElapsed = reducedMotion ? 0 : elapsed
-        model.advance(elapsedMs: modelElapsed, nowMs: now)
-        syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
-        if hadPulse && model.pulseState == nil {
-            displayState = model.baseState
+        // The daemon decides what follows each pass; report it.
+        if let ended = model.advance(elapsedMs: reducedMotion ? 0 : elapsed) {
+            report("pass", ["clip": ended])
         }
+        syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
         if let deadline = overlayDeadlineMs, now >= deadline {
             clearOverlay()
         }
@@ -557,11 +533,33 @@ final class PetController: NSObject {
         contentView?.needsDisplay = true
     }
 
+    /// Switch to the clip the daemon chose.
+    private func play(_ message: [String: Any]) {
+        guard let clip = Self.stringValue(message["clip"]) else { return }
+        let previousFrame = model.frame
+        let previousClip = model.activeClipName
+        guard model.play(clip, loop: message["loop"] as? Bool) else { return }
+        if dragging || clip.hasPrefix("dragging") {
+            fadeFromFrame = nil
+        } else {
+            syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
+        }
+        lastTickMs = Self.nowMs()
+        contentView?.needsDisplay = true
+    }
+
+    /// Tell the daemon about input; it answers with clips and lines.
+    private func report(_ kind: String, _ payload: [String: Any]) {
+        var message: [String: Any] = ["protocolVersion": 1, "kind": kind, "timestamp": Self.nowMs()]
+        message.merge(payload) { _, new in new }
+        ProtocolIO.shared.write(message)
+    }
+
     private func syncFrameTransition(previousFrame: String, previousClip: String) {
         let currentFrame = model.frame
         guard currentFrame != previousFrame else { return }
         guard previousClip != model.activeClipName else { return }
-        if let duration = AnimationModel.crossfadeDuration(previousClip: previousClip, currentClip: model.activeClipName) {
+        if let duration = ClipPlayer.crossfadeDuration(previousClip: previousClip, currentClip: model.activeClipName) {
             fadeFromFrame = previousFrame
             fadeStarted = CACurrentMediaTime()
             fadeDuration = duration
@@ -586,20 +584,7 @@ final class PetController: NSObject {
         let rect = petRect()
         dragPetOffsetX = rect.minX
         dragPetOffsetY = rect.minY
-        microTimer?.invalidate()
-        // `dragging` is a dangling loop: keep it advancing while the pointer
-        // moves the window, otherwise the pet sits on its first frame and looks
-        // frozen. Reduced motion keeps the previous frozen behaviour.
-        guard model.playOverlay("dragging") else {
-            animTimer?.invalidate()
-            contentView?.needsDisplay = true
-            return
-        }
-        if reducedMotion || !model.activeClip.loop {
-            animTimer?.invalidate()
-        } else {
-            restartAnimTimer()
-        }
+        report("input", ["type": "drag-start"])
         contentView?.needsDisplay = true
     }
 
@@ -615,90 +600,50 @@ final class PetController: NSObject {
 
     func endDrag() {
         guard dragging else { return }
-        let now = Self.nowMs()
-        model.advance(elapsedMs: 0, nowMs: now)
-        if reducedMotion || !model.playOverlay("dragging_release") { model.clearOverlay() }
         fadeFromFrame = nil
         dragging = false
-        lastTickMs = now
-        startAnimTimer()
-        if !reducedMotion {
-            scheduleMicro()
-        }
+        report("input", ["type": "drag-end"])
         saveLayout()
         updateClickThrough()
         contentView?.needsDisplay = true
     }
 
+    /// Report which part of the pet was clicked; the daemon reacts.
     func handleClick(at point: NSPoint, clickCount: Int) {
         if clickCount >= 2 {
-            playInteraction("head_pat", message: "好啦好啦，知道你喜欢我~")
+            report("input", ["type": "double-click"])
             return
         }
         let rect = petRect()
         let relativeX = max(0, point.x - rect.minX)
         let relativeY = max(0, point.y - rect.minY)
-        let (region, line): (String, String)
+        let region: String
         if relativeY < rect.height * 0.45 {
-            (region, line) = ("head_pat", "摸摸也不能让我少干活哦~")
+            region = "head_pat"
         } else if relativeX > rect.width * 0.72 {
-            (region, line) = ("tail", "尾巴不是进度条啦！")
+            region = "tail"
         } else {
-            (region, line) = ("poke", "戳我干嘛，任务还在跑呢")
+            region = "poke"
         }
-        let clip = model.pickInteraction(region, nowMs: Self.nowMs())
-        playInteraction(clip, message: model.annoyedClips.contains(clip) ? Self.annoyedLine : line)
-        contentView?.needsDisplay = true
+        report("input", ["type": "click", "region": region])
     }
 
-    private func playInteraction(_ clipName: String, message: String) {
-        let previousFrame = model.frame
-        let previousClip = model.activeClipName
-        guard reducedMotion || model.playInteraction(clipName, nowMs: Self.nowMs()) else { return }
-        syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
-        showOverlay(message, statusDetail, statusState, 1800)
-        scheduleMicro()
-        contentView?.needsDisplay = true
-    }
-
-    /// Show a fixed chatter line; ordinary lines wait for an idle pet.
+    /// Show a line; ordinary chatter waits for an idle pet.
     private func say(_ message: [String: Any]) {
         let text = String((message["message"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(80))
         guard !text.isEmpty, !dragging else { return }
-        let urgent = message["urgent"] as? Bool == true
-        let idle = model.baseState == "IDLE" && model.pulseState == nil
-        guard urgent || idle else { return }
-        if idle && !reducedMotion && model.overlayClipName == nil {
-            if let clip = message["clip"] as? String, model.clips[clip] != nil {
-                _ = model.playOverlay(clip)
-            } else {
-                _ = model.playIdleMicro(index: Int.random(in: 0..<max(1, model.idleMicroClips.count)))
-            }
-        }
+        guard message["urgent"] as? Bool == true || statusState == "IDLE" else { return }
         let ttl = max(1500, min(15000, (message["ttlMs"] as? Int) ?? 6000))
-        showOverlay(text, statusDetail, model.baseState, ttl)
+        showOverlay(text, statusDetail, statusState, ttl)
         resizeAndReposition()
         contentView?.needsDisplay = true
     }
 
     @objc private func playAction(_ sender: NSMenuItem) {
-        guard let entry = sender.representedObject as? [String], entry.count == 2 else { return }
-        let (clip, line) = (entry[0], entry[1])
-        guard !dragging, model.pulseState == nil else { return }
-        if model.interactionClips.contains(clip) {
-            playInteraction(clip, message: line)
-            return
-        }
-        let previousFrame = model.frame
-        let previousClip = model.activeClipName
-        guard reducedMotion || model.playOverlay(clip) else { return }
-        syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
-        showOverlay(line, statusDetail, statusState, 2500)
-        scheduleMicro()
-        contentView?.needsDisplay = true
+        guard let entry = sender.representedObject as? [String], entry.count == 2, !dragging else { return }
+        report("input", ["type": "action", "clip": entry[0], "line": entry[1]])
     }
 
-    /// Right-click "动作" groups from the manifest, or the flat fallback.
     private func actionMenuGroups() -> [(label: String, items: [(label: String, clip: String, line: String)])] {
         let groups = (manifest["actionMenu"] as? [[String: Any]] ?? []).compactMap { group -> (label: String, items: [(label: String, clip: String, line: String)])? in
             let items = (group["items"] as? [[String]] ?? []).compactMap { item -> (label: String, clip: String, line: String)? in
@@ -881,13 +826,7 @@ final class PetController: NSObject {
     private func setReducedMotion(_ enabled: Bool) {
         reducedMotion = enabled
         restartAnimTimer()
-        if enabled {
-            microTimer?.invalidate()
-            if !dragging { model.clearOverlay() }
-            fadeFromFrame = nil
-        } else {
-            scheduleMicro()
-        }
+        if enabled { fadeFromFrame = nil }
     }
 
     @objc private func toggleReducedMotion(_ sender: NSMenuItem) {
@@ -928,9 +867,6 @@ final class PetController: NSObject {
 
     func apply(_ message: [String: Any]) {
         logEvent(message)
-        let previousFrame = model.frame
-        let previousClip = model.activeClipName
-        let previousState = model.baseState
         guard let kind = message["kind"] as? String else { return }
         switch kind {
         case "shutdown":
@@ -949,6 +885,8 @@ final class PetController: NSObject {
             applyConfig(message)
         case "say":
             say(message)
+        case "play":
+            play(message)
         case "balance":
             balanceSummary = String((message["summary"] as? String ?? "").prefix(200))
             resizeAndReposition()
@@ -956,24 +894,21 @@ final class PetController: NSObject {
         default:
             break
         }
-        syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
-        if previousState != model.baseState { scheduleMicro() }
         maybeSaveSnapshot()
     }
 
+    // State and pulse set the bubble text and alerts; the daemon sends the
+    // clip separately.
     private func handleState(_ message: [String: Any]) {
         let state = Self.stringValue(message["state"]) ?? "IDLE"
-        let activity = Self.stringValue(message["activity"])
-        let previousBase = model.baseState
+        let previousState = statusState
         displayState = state
-        model.applyState(state, activity: activity)
         // A turn that ends waiting or failing deserves the same system alert
         // as a completion pulse; the pet may be hidden behind other windows.
-        if state != previousBase && (state == "WAITING" || state == "ERROR") {
+        if state != previousState && (state == "WAITING" || state == "ERROR") {
             notifyAlert(state, detail: Self.stringValue(message["detail"]))
         }
-        displayState = model.pulseState ?? state
-        if model.pulseState == nil { clearOverlay() }
+        clearOverlay()
         showStatus(
             Self.stringValue(message["message"]) ?? Self.labels[state] ?? state,
             Self.stringValue(message["detail"]) ?? "",
@@ -985,18 +920,9 @@ final class PetController: NSObject {
 
     private func handlePulse(_ message: [String: Any]) {
         let state = Self.stringValue(message["state"]) ?? "IDLE"
-        var ttl = max(250, Self.intValue(message["ttlMs"]) ?? 1800)
-        let resumeState = Self.stringValue(message["resumeState"]) ?? model.baseState
-        let resumeActivity = Self.stringValue(message["resumeActivity"])
-        model.applyPulse(
-            state: state,
-            ttlMs: ttl,
-            nowMs: Self.nowMs(),
-            resumeState: resumeState,
-            resumeActivity: resumeActivity,
-            completeClip: !reducedMotion
-        )
-        ttl = max(250, (model.pulseDeadlineMs ?? Self.nowMs()) - Self.nowMs())
+        let ttl = max(250, Self.intValue(message["ttlMs"]) ?? 1800)
+        let resumeState = Self.stringValue(message["resumeState"]) ?? statusState
+        displayState = state
         showStatus(
             Self.stringValue(message["resumeMessage"]) ?? Self.labels[resumeState] ?? resumeState,
             Self.stringValue(message["resumeDetail"]) ?? "",
@@ -1020,8 +946,8 @@ final class PetController: NSObject {
         showStatus(
             Self.stringValue(message["message"]) ?? task,
             Self.stringValue(message["detail"]) ?? "",
-            model.baseState,
-            Self.persistentStates.contains(model.baseState) ? nil : 6000
+            statusState,
+            Self.persistentStates.contains(statusState) ? nil : 6000
         )
         contentView?.needsDisplay = true
     }
@@ -1062,9 +988,6 @@ final class PetController: NSObject {
         }
         if let value = message["activityLevel"] as? String, ["quiet", "normal", "lively"].contains(value) {
             activityLevel = value
-            if !reducedMotion {
-                scheduleMicro()
-            }
         }
         if let value = message["bubbleMode"] as? String, ["auto", "always", "hidden", "custom"].contains(value) {
             bubbleMode = value
@@ -1086,7 +1009,6 @@ final class PetController: NSObject {
         saveLayout()
         animTimer?.invalidate()
         keepFrontTimer?.invalidate()
-        microTimer?.invalidate()
         clickThroughTimer?.invalidate()
         if reportClosed {
             ProtocolIO.shared.write([

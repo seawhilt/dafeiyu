@@ -18,7 +18,7 @@ PACKAGE_VERSION="$(node -p "require('$ROOT/package.json').version")"
 /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $PACKAGE_VERSION" "$APP/Contents/Info.plist"
 
 SOURCES=(
-  "$DIR/Sources/AnimationModel.swift" \
+  "$DIR/Sources/ClipPlayer.swift" \
   "$DIR/Sources/LayoutStore.swift" \
   "$DIR/Sources/PetGeometry.swift" \
   "$DIR/Sources/Permissions.swift" \
