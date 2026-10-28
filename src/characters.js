@@ -23,6 +23,17 @@ const SKINS = Object.freeze([
   ['winter_white', '冬日白'],
 ])
 const SKIN_FRAME = Object.freeze({ width: 450, height: 600 })
+// Calibrated to the built-in whale's ~268 px visible idle height (alpha >= 16).
+// Each value is target visible height / this skin's tallest visible frame, so
+// transparent padding in the source PNGs does not make a skin look oversized.
+const SKIN_PIXEL_SCALES = Object.freeze({
+  basin: 0.550,
+  beret: 0.541,
+  claude: 0.487,
+  maid: 0.509,
+  winter_blue: 0.527,
+  winter_white: 0.486,
+})
 const LOOPING_SKIN_CLIPS = new Set(['idle', 'thinking', 'working', 'review', 'running_right', 'attention', 'tail', 'dragging'])
 const SKIN_EMOTIONS = Object.freeze({
   idle: 'pet_stand.png',
@@ -129,7 +140,7 @@ function skinManifest(id) {
     maxFrameWidth: SKIN_FRAME.width,
     maxFrameHeight: SKIN_FRAME.height,
     maxClipWidth: SKIN_FRAME.width,
-    pixelScale: 0.85,
+    pixelScale: SKIN_PIXEL_SCALES[id] ?? 0.5,
     bubbleHeadroom: 0,
     clips,
     stateMap: {

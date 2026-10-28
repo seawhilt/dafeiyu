@@ -51,7 +51,7 @@ dafeiyu settings
 
 这会启动桌宠，并在浏览器打开设置页，在页面上一键接入 Claude Code，或按提示接入 DeepSeek。以后也可以在桌宠上右键选「设置…」打开。
 
-升级时先运行 `dafeiyu stop`，再重新运行一次上面的 `npm install -g` 命令。Windows 上这一步尤其重要：正在运行的守护进程会占用全局安装目录里的文件，不先停止可能升级失败。指定版本可以把 `latest/download/agent-dafeiyu.tgz` 换成 `download/v0.2.4/agent-dafeiyu-0.2.4.tgz`。卸载时先运行 `dafeiyu uninstall-claude` 移除 hooks，再 `dafeiyu stop` 关闭守护进程，最后 `npm uninstall -g agent-dafeiyu`。
+升级时先运行 `dafeiyu stop`，再重新运行一次上面的 `npm install -g` 命令。Windows 上这一步尤其重要：正在运行的守护进程会占用全局安装目录里的文件，不先停止可能升级失败。指定版本可以把 `latest/download/agent-dafeiyu.tgz` 换成 `download/v0.2.5/agent-dafeiyu-0.2.5.tgz`。卸载时先运行 `dafeiyu uninstall-claude` 移除 hooks，再 `dafeiyu stop` 关闭守护进程，最后 `npm uninstall -g agent-dafeiyu`。
 
 > 正式支持 macOS 和 Windows。Linux 没有预编译的桌宠程序，会回退到 Python 版，需要自己装 `python3` 与 `PySide6>=6.7,<7`，不保证效果。
 
