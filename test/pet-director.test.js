@@ -137,3 +137,43 @@ test('crossfades skip drag clips and repeats', () => {
   assert.equal(crossfadeMs('thinking', 'working'), 100)
   assert.equal(new AnimationModel(MANIFEST).durationMs('success'), 241 * 42)
 })
+
+test('dropping the pet on a screen edge docks it and holds it still', () => {
+  const { director, sent, plays, timers } = setup()
+  director.input({ type: 'drag-start' })
+  director.input({ type: 'drag-end', edge: 'left' })
+  assert.equal(director.docked, 'left')
+  assert.deepEqual(sent.filter((message) => message.kind === 'dock').map((message) => message.edge), ['left'])
+  assert.equal(plays().at(-1), 'idle', 'it docks on the resting clip, not the landing')
+  const before = plays().length
+  director.observe(state('WORKING', { activity: 'editing' }))
+  director.passEnded('idle')
+  assert.equal(plays().length, before, 'a docked pet does not change clips')
+  assert.equal(timers.pending.some((timer) => timer.ms >= 3000), false, 'no idle actions while docked')
+})
+
+test('a touch brings a docked pet back out on the current clip', () => {
+  const { director, sent, plays } = setup()
+  director.input({ type: 'drag-end', edge: 'right' })
+  director.observe(state('WORKING', { activity: 'editing' }))
+  director.input({ type: 'click', region: 'poke' })
+  assert.equal(director.docked, null)
+  assert.deepEqual(sent.filter((message) => message.kind === 'dock').map((message) => message.edge), ['right', null])
+  assert.equal(plays().at(-1), 'write_code')
+  assert.equal(sent.at(-1).message, '我出来啦~')
+})
+
+test('dragging a docked pet away undocks it and plays the drag', () => {
+  const { director, plays } = setup()
+  director.input({ type: 'drag-end', edge: 'left' })
+  director.input({ type: 'drag-start' })
+  assert.equal(director.docked, null)
+  assert.equal(plays().at(-1), 'dragging')
+})
+
+test('an unknown edge does not dock', () => {
+  const { director, plays } = setup()
+  director.input({ type: 'drag-end', edge: 'top' })
+  assert.equal(director.docked, null)
+  assert.equal(plays().at(-1), 'dragging_release')
+})

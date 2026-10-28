@@ -1,6 +1,48 @@
 import CoreGraphics
 
 enum PetGeometry {
+    /// A drop this close to a side of the screen docks the pet there.
+    static let dockSnapDistance: CGFloat = 16
+    /// Share of the docked (rotated) pet that stays on screen: about the head.
+    static let dockPeek: CGFloat = 0.6
+    /// The steepest lean while dragging, in degrees.
+    static let maxTilt: CGFloat = 14
+    /// Drag speed, in points per second, per degree of lean.
+    static let tiltSpeedPerDegree: CGFloat = 80
+
+    /// The screen side a pet dropped at `pet` should dock on, if any.
+    static func dockEdge(pet: CGRect, screen: CGRect) -> String? {
+        if pet.minX <= screen.minX + dockSnapDistance { return "left" }
+        if pet.maxX >= screen.maxX - dockSnapDistance { return "right" }
+        return nil
+    }
+
+    /// The pet's x when docked on `edge`. The pet is turned a quarter so its
+    /// height lies along the screen; only the head end stays visible.
+    static func dockedX(edge: String, petSize: CGSize, screen: CGRect) -> CGFloat {
+        let visible = petSize.height * dockPeek
+        let centerX = edge == "left"
+            ? screen.minX + visible - petSize.height / 2
+            : screen.maxX - visible + petSize.height / 2
+        return centerX - petSize.width / 2
+    }
+
+    /// The pet's turn when docked, in degrees (positive is clockwise on
+    /// screen); the head points into the screen.
+    static func dockAngle(edge: String?) -> CGFloat {
+        switch edge {
+        case "left": return 90
+        case "right": return -90
+        default: return 0
+        }
+    }
+
+    /// The lean for a horizontal drag speed, as a turn like `dockAngle`: the
+    /// head leans toward the motion, so dragging right turns clockwise.
+    static func tilt(forSpeed speed: CGFloat) -> CGFloat {
+        min(maxTilt, max(-maxTilt, speed / tiltSpeedPerDegree))
+    }
+
     /// Clamp the character itself, including when its card is wider than it.
     /// At least 35% remains visible on each axis so it can be grabbed again.
     static func clamp(_ point: CGPoint, petSize: CGSize, screen: CGRect) -> CGPoint {

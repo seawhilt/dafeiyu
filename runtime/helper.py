@@ -22,12 +22,12 @@ try:
     from .animation_model import Player, crossfade_duration
     from .layout_store import default_layout_path, load_layout, save_layout
     from .asset_paths import bundle_root
-    from .pet_geometry import bubble_top, position_window
+    from .pet_geometry import bubble_top, dock_angle, dock_edge, docked_x, position_window, tilt_for_speed
 except ImportError:
     from animation_model import Player, crossfade_duration
     from layout_store import default_layout_path, load_layout, save_layout
     from asset_paths import bundle_root
-    from pet_geometry import bubble_top, position_window
+    from pet_geometry import bubble_top, dock_angle, dock_edge, docked_x, position_window, tilt_for_speed
 
 
 PROTOCOL_VERSION = 1
@@ -60,6 +60,9 @@ WHISPER_MENU = (("关闭", "off"), ("偶尔说（15～30 分钟）", "low"), ("�
 # 24 fps set resident would need well over a gigabyte. Frames are read from disk
 # once as compressed bytes and decoded through a bounded cache instead.
 DECODED_FRAME_CACHE = 24
+# Drag lean: how fast it follows the pointer, and how long a pause rights it.
+TILT_EASING = 0.2
+TILT_SETTLE_S = 0.09
 
 
 def configure_qt_platform() -> None:
@@ -481,6 +484,15 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.pet_x = 0
             self.pet_y = 0
             self.dragging = False
+            # The screen side the daemon docked the pet on, and where it comes
+            # back out.
+            self.dock_edge: str | None = None
+            self.undocked_pet: tuple[int, int] | None = None
+            # Lean while dragging, in degrees, easing toward tilt_target.
+            self.tilt = 0.0
+            self.tilt_target = 0.0
+            self.drag_speed = 0.0
+            self.last_drag_sample: tuple[int, float] | None = None
             self.last_tick_ms = self._now_ms()
             self.fade_from_pixmap: QPixmap | None = None
             self.fade_started = 0.0
@@ -526,6 +538,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self._say(message)
             elif kind == "play":
                 self._play(message)
+            elif kind == "dock":
+                self._set_dock(message.get("edge"))
             elif kind == "balance":
                 self.balance_summary = str(message.get("summary", ""))[:200]
                 self._sync_bubble_size()
@@ -666,14 +680,77 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.last_tick_ms = now_ms
             previous_frame = self.model.frame
             previous_clip = self.model.active_clip_name
-            # The daemon decides what follows each pass; report it.
-            ended = self.model.advance(0 if self.reduced_motion else elapsed_ms)
+            # The daemon decides what follows each pass; report it. A docked
+            # pet holds still.
+            ended = None if self.dock_edge else self.model.advance(0 if self.reduced_motion else elapsed_ms)
             if ended is not None:
                 emit_reply("pass", clip=ended)
+            self._ease_tilt()
             self._sync_frame_transition(previous_frame, previous_clip)
             if self.overlay_deadline_ms is not None and now_ms >= self.overlay_deadline_ms:
                 self._clear_overlay()
             self._rearm_animation_interval()
+            self.update()
+
+        def _ease_tilt(self) -> None:
+            if not self.dragging or self.reduced_motion:
+                self.tilt_target = 0.0
+            elif self.last_drag_sample is not None and time.monotonic() - self.last_drag_sample[1] > TILT_SETTLE_S:
+                self.tilt_target = 0.0
+                self.drag_speed = 0.0
+            self.tilt += (self.tilt_target - self.tilt) * TILT_EASING
+            if abs(self.tilt) < 0.05 and self.tilt_target == 0.0:
+                self.tilt = 0.0
+
+        def _sample_drag(self) -> None:
+            now = time.monotonic()
+            if self.last_drag_sample is not None and now > self.last_drag_sample[1]:
+                speed = (self.pet_x - self.last_drag_sample[0]) / (now - self.last_drag_sample[1])
+                self.drag_speed = self.drag_speed * 0.6 + speed * 0.4
+                self.tilt_target = tilt_for_speed(self.drag_speed)
+            self.last_drag_sample = (self.pet_x, now)
+
+        def _screen_rect(self) -> tuple[int, int, int, int] | None:
+            pet_width, pet_height = self._pet_size()
+            geometry = self._screen_geometry_at(self.pet_x + pet_width // 2, self.pet_y + pet_height // 2)
+            if geometry is None:
+                return None
+            return geometry.x(), geometry.y(), geometry.width(), geometry.height()
+
+        def _set_dock(self, edge: Any) -> None:
+            """Dock on a screen side, or come back out (None)."""
+            edge = edge if edge in {"left", "right"} else None
+            if edge == self.dock_edge:
+                return
+            screen = self._screen_rect()
+            if edge is not None and screen is not None:
+                left, top, width, height = screen
+                pet_width, pet_height = self._pet_size()
+                # Coming out, the pet stands fully on screen by the same side.
+                out_x = left + 8 if edge == "left" else left + width - pet_width - 8
+                self.undocked_pet = (out_x, min(max(self.pet_y, top), top + height - pet_height))
+                self.dock_edge = edge
+                self.fade_from_pixmap = None
+                self._clear_overlay()
+                self._sync_bubble_size()
+                self._place_docked()
+            else:
+                self.dock_edge = None
+                self._sync_bubble_size()
+                if self.undocked_pet is not None:
+                    self._move_to_pet(*self.undocked_pet)
+                self.undocked_pet = None
+            self._save_layout()
+            self.update()
+
+        def _place_docked(self) -> None:
+            """Hold the docked pet half behind its screen side."""
+            screen = self._screen_rect()
+            if self.dock_edge is None or screen is None:
+                return
+            pet_width, pet_height = self._pet_size()
+            self.pet_x = docked_x(self.dock_edge, (pet_width, pet_height), screen)
+            self.move(self.pet_x - (self.width() - pet_width) // 2, self.pet_y - (self.height() - pet_height - 8))
             self.update()
 
         def _play(self, message: dict[str, Any]) -> None:
@@ -731,16 +808,25 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             if self.dragging:
                 return
             self.dragging = True
+            self.drag_speed = 0.0
+            self.last_drag_sample = None
             emit_reply("input", type="drag-start")
 
         def _finish_drag(self) -> None:
             if not self.dragging:
                 return
             self.dragging = False
-            emit_reply("input", type="drag-end")
+            self.last_drag_sample = None
+            # Report a drop by a screen side; the daemon decides whether to dock.
+            screen = self._screen_rect()
+            edge = dock_edge((self.pet_x, self.pet_y, *self._pet_size()), screen) if screen else None
+            if edge:
+                emit_reply("input", type="drag-end", edge=edge)
+            else:
+                emit_reply("input", type="drag-end")
 
         def _bubble_visible(self) -> bool:
-            if self.bubble_mode == "hidden":
+            if self.bubble_mode == "hidden" or self.dock_edge is not None:
                 return False
             if self.bubble_mode == "always":
                 return True
@@ -790,6 +876,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
 
         def _move_to_pet(self, pet_x: int, pet_y: int) -> None:
             """Resize or move the container around the character's anchor."""
+            if self.dock_edge is not None:
+                self._place_docked()
+                return
             geometry = self._screen_geometry_at(pet_x, pet_y)
             screen = (geometry.x(), geometry.y(), geometry.width(), geometry.height()) if geometry is not None else None
             window_x, window_y, self.pet_x, self.pet_y = position_window(
@@ -851,8 +940,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 "version": 1,
                 "x": self.x(),
                 "y": self.y(),
-                "petX": self.pet_x,
-                "petY": self.pet_y,
+                # A docked pet is remembered where it comes back out.
+                "petX": self.undocked_pet[0] if self.dock_edge and self.undocked_pet else self.pet_x,
+                "petY": self.undocked_pet[1] if self.dock_edge and self.undocked_pet else self.pet_y,
                 "scale": self.scale,
                 "bubbleScale": self.bubble_scale,
                 "reducedMotion": self.reduced_motion,
@@ -1114,6 +1204,15 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 # Wide clips keep the pet's scale and centre; only their width differs.
                 x += (pet_width - pw) / 2
                 painter.save()
+                angle = dock_angle(self.dock_edge) + self.tilt
+                if angle:
+                    # Turn about the pet's centre; Qt's y axis points down,
+                    # so a positive angle turns clockwise.
+                    _, pet_y, _, pet_height = self._pet_rect()
+                    center_x, center_y = x + pw / 2, pet_y + pet_height / 2
+                    painter.translate(center_x, center_y)
+                    painter.rotate(angle)
+                    painter.translate(-center_x, -center_y)
                 painter.setOpacity(alpha)
                 painter.drawPixmap(QRectF(x, y, pw, ph), pix, QRectF(0, 0, pix.width(), pix.height()))
                 painter.restore()
@@ -1136,6 +1235,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                     self._begin_drag()
                 delta = event.globalPosition().toPoint() - self.drag_origin
                 self._move_to_pet(self.pet_origin.x() + delta.x(), self.pet_origin.y() + delta.y())
+                if self.dragging:
+                    self._sample_drag()
 
         def mouseReleaseEvent(self, event: QMouseEvent) -> None:
             if event.button() == Qt.MouseButton.LeftButton:

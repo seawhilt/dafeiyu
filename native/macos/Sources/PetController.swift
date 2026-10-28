@@ -114,6 +114,18 @@ final class PetController: NSObject {
     private var fadeFromFrame: String?
     private var fadeStarted: CFTimeInterval = 0
     private var fadeDuration: Double = 0.15
+    /// The screen side the pet is docked on, as the daemon decided, or nil.
+    private var dockEdge: String?
+    /// Where the pet goes when it comes back out of the dock.
+    private var undockedPet: NSPoint?
+    /// Lean while dragging, in degrees, easing toward `tiltTarget`.
+    private var tilt: CGFloat = 0
+    private var tiltTarget: CGFloat = 0
+    private var dragSpeed: CGFloat = 0
+    private var lastDragSample: (x: CGFloat, time: CFTimeInterval)?
+    private static let tiltEasing: CGFloat = 0.2
+    /// The lean returns upright when the pointer pauses this long, in seconds.
+    private static let tiltSettle: CFTimeInterval = 0.09
     private var snapshotSaved = false
     private var quitting = false
 
@@ -348,6 +360,12 @@ final class PetController: NSObject {
 
     func moveToPet(_ x: CGFloat, _ y: CGFloat) {
         guard let panel = panel else { return }
+        if dockEdge != nil {
+            placeDocked()
+            updateClickThrough()
+            contentView?.needsDisplay = true
+            return
+        }
         let size = windowSize()
         let geometry = screenContaining(NSPoint(x: x + petWidth / 2, y: y + petHeight / 2))?.visibleFrame
             ?? panel.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
@@ -393,8 +411,10 @@ final class PetController: NSObject {
         var layout = PetLayout()
         layout.x = Int(origin.x.rounded())
         layout.y = Int(origin.y.rounded())
-        layout.petX = Int(petX.rounded())
-        layout.petY = Int(petY.rounded())
+        // A docked pet is remembered where it comes back out.
+        let pet = dockEdge != nil ? (undockedPet ?? NSPoint(x: petX, y: petY)) : NSPoint(x: petX, y: petY)
+        layout.petX = Int(pet.x.rounded())
+        layout.petY = Int(pet.y.rounded())
         layout.scale = scale
         layout.bubbleScale = bubbleScale
         layout.reducedMotion = reducedMotion
@@ -519,10 +539,12 @@ final class PetController: NSObject {
         lastTickMs = now
         let previousFrame = model.frame
         let previousClip = model.activeClipName
-        // The daemon decides what follows each pass; report it.
-        if let ended = model.advance(elapsedMs: reducedMotion ? 0 : elapsed) {
+        // The daemon decides what follows each pass; report it. A docked pet
+        // holds still.
+        if dockEdge == nil, let ended = model.advance(elapsedMs: reducedMotion ? 0 : elapsed) {
             report("pass", ["clip": ended])
         }
+        easeTilt()
         syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
         if let deadline = overlayDeadlineMs, now >= deadline {
             clearOverlay()
@@ -546,6 +568,59 @@ final class PetController: NSObject {
         }
         lastTickMs = Self.nowMs()
         contentView?.needsDisplay = true
+    }
+
+    private func easeTilt() {
+        if !dragging || reducedMotion {
+            tiltTarget = 0
+        } else if let sample = lastDragSample, CACurrentMediaTime() - sample.time > Self.tiltSettle {
+            tiltTarget = 0
+            dragSpeed = 0
+        }
+        tilt += (tiltTarget - tilt) * Self.tiltEasing
+        if abs(tilt) < 0.05 && tiltTarget == 0 { tilt = 0 }
+    }
+
+    /// Dock on a screen side, or come back out (nil).
+    private func setDock(_ edge: String?) {
+        let next = edge == "left" || edge == "right" ? edge : nil
+        guard next != dockEdge else { return }
+        if let next = next {
+            let screen = currentScreenFrame()
+            // Coming out, the pet stands fully on screen by the same side.
+            undockedPet = NSPoint(
+                x: next == "left" ? screen.minX + 8 : screen.maxX - petWidth - 8,
+                y: min(max(petY, screen.minY), screen.maxY - petHeight)
+            )
+            dockEdge = next
+            fadeFromFrame = nil
+            placeDocked()
+            clearOverlay()
+        } else {
+            dockEdge = nil
+            if let point = undockedPet { moveToPet(point.x, point.y) }
+            undockedPet = nil
+        }
+        saveLayout()
+        updateClickThrough()
+        contentView?.needsDisplay = true
+    }
+
+    private func currentScreenFrame() -> NSRect {
+        screenContaining(NSPoint(x: petX + petWidth / 2, y: petY + petHeight / 2))?.visibleFrame
+            ?? panel?.screen?.visibleFrame ?? NSScreen.main?.visibleFrame
+            ?? NSRect(x: 0, y: 0, width: 1512, height: 982)
+    }
+
+    /// Put the docked pet half behind its screen side; the window may hang
+    /// off the screen.
+    private func placeDocked() {
+        guard let panel = panel, let edge = dockEdge else { return }
+        let size = windowSize()
+        let screen = currentScreenFrame()
+        petX = PetGeometry.dockedX(edge: edge, petSize: NSSize(width: petWidth, height: petHeight), screen: screen)
+        let windowX = petX - (size.width - petWidth) / 2
+        panel.setFrameOrigin(NSPoint(x: windowX, y: petY - 8))
     }
 
     /// Tell the daemon about input; it answers with clips and lines.
@@ -584,6 +659,8 @@ final class PetController: NSObject {
         let rect = petRect()
         dragPetOffsetX = rect.minX
         dragPetOffsetY = rect.minY
+        dragSpeed = 0
+        lastDragSample = nil
         report("input", ["type": "drag-start"])
         contentView?.needsDisplay = true
     }
@@ -595,6 +672,13 @@ final class PetController: NSObject {
         // captured at drag start, so the character and the bubble move as one.
         petX = panel.frame.origin.x + dragPetOffsetX
         petY = panel.frame.origin.y + (viewSize.height - dragPetOffsetY - petHeight)
+        let now = CACurrentMediaTime()
+        if let sample = lastDragSample, now > sample.time {
+            let speed = (petX - sample.x) / CGFloat(now - sample.time)
+            dragSpeed = dragSpeed * 0.6 + speed * 0.4
+            tiltTarget = PetGeometry.tilt(forSpeed: dragSpeed)
+        }
+        lastDragSample = (petX, now)
         contentView?.needsDisplay = true
     }
 
@@ -602,7 +686,12 @@ final class PetController: NSObject {
         guard dragging else { return }
         fadeFromFrame = nil
         dragging = false
-        report("input", ["type": "drag-end"])
+        lastDragSample = nil
+        // Report a drop by a screen side; the daemon decides whether to dock.
+        var drop: [String: Any] = ["type": "drag-end"]
+        let pet = NSRect(x: petX, y: petY, width: petWidth, height: petHeight)
+        if let edge = PetGeometry.dockEdge(pet: pet, screen: currentScreenFrame()) { drop["edge"] = edge }
+        report("input", drop)
         saveLayout()
         updateClickThrough()
         contentView?.needsDisplay = true
@@ -887,6 +976,8 @@ final class PetController: NSObject {
             say(message)
         case "play":
             play(message)
+        case "dock":
+            setDock(message["edge"] as? String)
         case "balance":
             balanceSummary = String((message["summary"] as? String ?? "").prefix(200))
             resizeAndReposition()
@@ -1057,7 +1148,7 @@ final class PetController: NSObject {
     }
 
     private func bubbleVisible() -> Bool {
-        if bubbleMode == "hidden" { return false }
+        if bubbleMode == "hidden" || dockEdge != nil { return false }
         if bubbleMode == "always" { return true }
         // Working, or something to say; an idle pet keeps quiet.
         if bubbleMode == "auto" { return tasks.count >= 2 || currentCard() != nil }
@@ -1141,6 +1232,9 @@ final class PetController: NSObject {
             // high-quality filtering keeps the line art from turning jagged.
             ctx.interpolationQuality = .high
             ctx.translateBy(x: centerX, y: centerY)
+            // The view is flipped, so a positive angle turns clockwise.
+            let angle = PetGeometry.dockAngle(edge: dockEdge) + tilt
+            if angle != 0 { ctx.rotate(by: angle * .pi / 180) }
             // The content view is flipped (top-left origin). NSImage drawing
             // does not compensate for a flipped context, which would render
             // the pet vertically mirrored. Mirror about the image's own

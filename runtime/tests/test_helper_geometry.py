@@ -35,7 +35,6 @@ class HelperGeometryTests(unittest.TestCase):
 
             def scenario():
                 try:
-                    window.micro_timer.stop()
                     window._screen_geometry_at = lambda x, y: QRect(0, 0, 1920, 1040)
 
                     def message(kind, **fields):
@@ -64,6 +63,23 @@ class HelperGeometryTests(unittest.TestCase):
                                 window._tick()
                             assert_anchor(expected)
                         window.grab()  # Painting must use the same rectangle as hit testing.
+                    # Docked, the pet hangs off the screen side, holds still and
+                    # hides its bubble; it comes back out by the same side.
+                    window._move_to_pet(30, 400)
+                    message('config', bubbleMode='always')
+                    message('dock', edge='left')
+                    self.assertLess(window.pet_x, 0)
+                    self.assertFalse(window._bubble_visible())
+                    frame = window.model.frame
+                    for _ in range(10):
+                        window.last_tick_ms -= 100
+                        window._tick()
+                    self.assertEqual(window.model.frame, frame)
+                    self.assertEqual((window.layout['petX'], window.layout['petY']), (8, 400))
+                    window.grab()
+                    message('dock', edge=None)
+                    assert_anchor((8, 400))
+                    message('config', bubbleMode='hidden')
                     with patch.object(QDesktopServices, 'openUrl', return_value=False), patch('sys.stderr'):
                         window._open_client()
                     self.assertEqual(window.overlay_message, '无法打开 DSH')

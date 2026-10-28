@@ -25,6 +25,9 @@ export const CompanionMessageKind = Object.freeze({
   PLAY: 'play',
   INPUT: 'input',
   PASS: 'pass',
+  // Daemon -> helper: dock against a screen edge ('left' | 'right') or
+  // come back out (null). A docked pet holds still with its head peeking in.
+  DOCK: 'dock',
   SETTINGS: 'settings',
   PING: 'ping',
   PONG: 'pong',

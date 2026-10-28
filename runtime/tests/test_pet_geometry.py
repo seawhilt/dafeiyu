@@ -1,6 +1,15 @@
 import unittest
 
-from runtime.pet_geometry import bubble_top, position_window
+from runtime.pet_geometry import (
+    DOCK_PEEK,
+    MAX_TILT,
+    bubble_top,
+    dock_angle,
+    dock_edge,
+    docked_x,
+    position_window,
+    tilt_for_speed,
+)
 
 
 class PetGeometryTests(unittest.TestCase):
@@ -40,3 +49,24 @@ class PetGeometryTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class DockGeometryTests(unittest.TestCase):
+    SCREEN = (0, 0, 1000, 800)
+
+    def test_a_drop_by_a_side_of_the_screen_docks_there(self) -> None:
+        self.assertEqual(dock_edge((0, 100, 200, 220), self.SCREEN), "left")
+        self.assertEqual(dock_edge((790, 100, 200, 220), self.SCREEN), "right")
+        self.assertIsNone(dock_edge((400, 100, 200, 220), self.SCREEN))
+
+    def test_a_docked_pet_shows_only_its_head(self) -> None:
+        left = docked_x("left", (200, 220), self.SCREEN)
+        self.assertAlmostEqual(left + 100 + 110, 220 * DOCK_PEEK, delta=1)
+        right = docked_x("right", (200, 220), self.SCREEN)
+        self.assertAlmostEqual(1000 - (right + 100 - 110), 220 * DOCK_PEEK, delta=1)
+        self.assertEqual((dock_angle("left"), dock_angle("right"), dock_angle(None)), (90.0, -90.0, 0.0))
+
+    def test_tilt_leans_with_the_drag_and_is_capped(self) -> None:
+        self.assertEqual(tilt_for_speed(400), 5.0)
+        self.assertEqual(tilt_for_speed(-400), -5.0)
+        self.assertEqual(tilt_for_speed(99999), MAX_TILT)

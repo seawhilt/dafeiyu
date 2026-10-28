@@ -39,4 +39,30 @@ final class PetGeometryTests: XCTestCase {
         XCTAssertTrue(PetGeometry.isInteractive(CGPoint(x: 9.5, y: 10), pet: pet, bubble: nil))
         XCTAssertFalse(PetGeometry.isInteractive(CGPoint(x: 8, y: 10), pet: pet, bubble: nil))
     }
+
+    func testADropBySideOfTheScreenDocksThere() {
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        XCTAssertEqual(PetGeometry.dockEdge(pet: CGRect(x: -40, y: 100, width: 200, height: 220), screen: screen), "left")
+        XCTAssertEqual(PetGeometry.dockEdge(pet: CGRect(x: 790, y: 100, width: 200, height: 220), screen: screen), "right")
+        XCTAssertNil(PetGeometry.dockEdge(pet: CGRect(x: 400, y: 100, width: 200, height: 220), screen: screen))
+    }
+
+    func testADockedPetShowsOnlyItsHead() {
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let size = CGSize(width: 200, height: 220)
+        // Turned a quarter, the pet spans its height across the screen side.
+        let left = PetGeometry.dockedX(edge: "left", petSize: size, screen: screen)
+        XCTAssertEqual(left + size.width / 2 + size.height / 2, 220 * PetGeometry.dockPeek, accuracy: 0.001)
+        let right = PetGeometry.dockedX(edge: "right", petSize: size, screen: screen)
+        XCTAssertEqual(1000 - (right + size.width / 2 - size.height / 2), 220 * PetGeometry.dockPeek, accuracy: 0.001)
+        XCTAssertEqual(PetGeometry.dockAngle(edge: "left"), 90)
+        XCTAssertEqual(PetGeometry.dockAngle(edge: "right"), -90)
+        XCTAssertEqual(PetGeometry.dockAngle(edge: nil), 0)
+    }
+
+    func testTiltLeansWithTheDragAndIsCapped() {
+        XCTAssertEqual(PetGeometry.tilt(forSpeed: 400), 5)
+        XCTAssertEqual(PetGeometry.tilt(forSpeed: -400), -5)
+        XCTAssertEqual(PetGeometry.tilt(forSpeed: 99_999), PetGeometry.maxTilt)
+    }
 }

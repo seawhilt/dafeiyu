@@ -13,6 +13,8 @@ const CLICK_LINES = Object.freeze({
 })
 const ANNOYED_LINE = '别戳啦！再戳我就生气了！'
 const PAT_LINE = '好啦好啦，知道你喜欢我~'
+const UNDOCK_LINE = '我出来啦~'
+const DOCK_EDGES = new Set(['left', 'right'])
 const LINE_TTL_MS = 1800
 const ACTION_TTL_MS = 2500
 
@@ -33,6 +35,8 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
   let lastState = null
   let pulseTimer
   let microTimer
+  // The screen edge the pet is docked on, or null.
+  let docked = null
   let stopped = false
 
   const later = (delay, fn) => {
@@ -41,13 +45,29 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     return timer
   }
 
+  // A docked pet holds still; the clip catches up when it comes back out.
   const play = (force = false) => {
+    if (docked) return
     if (!force && model.activeClip === sentClip) return
     sentClip = model.activeClip
     send(createMessage(CompanionMessageKind.PLAY, { clip: sentClip, loop: model.clip()?.loop === true }))
   }
 
   const sayLine = (text, ttlMs) => send(createMessage(CompanionMessageKind.SAY, { message: text, ttlMs, urgent: true }))
+
+  const dock = (edge) => {
+    timers.clearTimeout(microTimer)
+    model.clearOverlay()
+    play()
+    docked = edge
+    send(createMessage(CompanionMessageKind.DOCK, { edge }))
+  }
+
+  const undock = () => {
+    docked = null
+    send(createMessage(CompanionMessageKind.DOCK, { edge: null }))
+    play(true)
+  }
 
   const schedulePulseEnd = () => {
     timers.clearTimeout(pulseTimer)
@@ -61,7 +81,7 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
   // Idle actions: a random rest after the current overlay, only while idle.
   function scheduleMicro() {
     timers.clearTimeout(microTimer)
-    if (stopped || reducedMotion || model.baseState !== 'IDLE') return
+    if (stopped || docked || reducedMotion || model.baseState !== 'IDLE') return
     const [low, high] = model.idleInterval(activityLevel)
     microTimer = later(low + Math.floor(random() * (high - low)), () => {
       if (model.playIdleMicro(Math.floor(random() * Math.max(1, model.idleMicroClips.length)))) play()
@@ -82,6 +102,8 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     setManifest(next) {
       model = new AnimationModel(next)
       sentClip = null
+      // The restarted helper comes back undocked.
+      docked = null
       if (lastState) model.applyState(lastState.state, lastState.activity)
       play(true)
       scheduleMicro()
@@ -127,6 +149,15 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     /** Clicks, drags and menu actions reported by the helper. */
     input(report) {
       const at = now()
+      // Any touch on a docked pet brings it back out; a drag carries it off.
+      if (docked && report?.type !== 'drag-end') {
+        undock()
+        if (report?.type !== 'drag-start') {
+          sayLine(UNDOCK_LINE, LINE_TTL_MS)
+          scheduleMicro()
+          return
+        }
+      }
       switch (report?.type) {
         case 'click': {
           const region = Object.hasOwn(CLICK_LINES, report.region) ? report.region : 'poke'
@@ -149,6 +180,10 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
         case 'drag-end':
           // A long drag may have outlived the pulse underneath it.
           model.expirePulse(at)
+          if (DOCK_EDGES.has(report.edge)) {
+            dock(report.edge)
+            break
+          }
           if (reducedMotion || !model.playOverlay('dragging_release')) model.clearOverlay()
           play()
           break
@@ -173,6 +208,10 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
 
     get activeClip() {
       return model.activeClip
+    },
+
+    get docked() {
+      return docked
     },
 
     stop() {
