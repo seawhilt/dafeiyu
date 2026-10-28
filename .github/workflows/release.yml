@@ -1,0 +1,202 @@
+name: Release
+
+# Pushing a version tag (v0.2.0, ...) builds the pet program for macOS and
+# Windows, assembles one installable package and attaches it to a GitHub
+# Release. Users install it with:
+#   npm install -g https://github.com/<owner>/<repo>/releases/latest/download/agent-dafeiyu.tgz
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  windows-helper:
+    name: Build Windows Helper
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install JavaScript dependencies
+        run: npm install --ignore-scripts --no-package-lock
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install Helper build dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt pyinstaller
+
+      - name: Run tests
+        run: |
+          npm test
+          python -m unittest discover -s runtime/tests -t .
+
+      - name: Build and smoke-test Windows Helper
+        shell: pwsh
+        run: |
+          $env:DAFEIYU_BUILD_PYTHON = (Get-Command python).Source
+          npm run build:helper:windows
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-helper
+          path: runtime/bin/win32-x64/dafeiyu-helper.exe
+          if-no-files-found: error
+          retention-days: 14
+
+  macos-helper:
+    name: Build macOS universal Helper
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Run Swift core tests
+        run: swift test
+
+      - name: Build and smoke-test macOS Helper
+        run: |
+          npm run build:helper:darwin
+          node scripts/test-packaged-helper.mjs
+
+      - name: Verify universal architecture and ad-hoc signature
+        run: |
+          app=runtime/bin/darwin/dafeiyu-helper.app
+          lipo "$app/Contents/MacOS/dafeiyu-helper" -verify_arch arm64 x86_64
+          codesign --verify --deep --strict --verbose=2 "$app"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-helper
+          path: runtime/bin/darwin
+          if-no-files-found: error
+          retention-days: 14
+
+  package:
+    name: Assemble and verify the package
+    needs: [windows-helper, macos-helper]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Check the tag matches package.json
+        if: github.event_name == 'push'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "$REF_NAME" != "v$version" ]; then
+            echo "Tag $REF_NAME does not match package.json version v$version" >&2
+            exit 1
+          fi
+
+      - name: Install bundled runtime dependencies
+        # bundleDependencies are packed from node_modules, so a global install
+        # needs no registry access for them.
+        run: npm install --ignore-scripts --no-package-lock --omit=dev
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: windows-helper
+          path: runtime/bin/win32-x64
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: macos-helper
+          path: runtime/bin/darwin
+
+      - name: Pack and verify
+        run: |
+          set -euo pipefail
+          chmod 0755 runtime/bin/darwin/dafeiyu-helper.app/Contents/MacOS/dafeiyu-helper
+          archive=$(npm pack --silent)
+          mkdir -p .build/package-check
+          tar -xzf "$archive" -C .build/package-check
+          root=.build/package-check/package
+          test -f "$root/runtime/bin/win32-x64/dafeiyu-helper.exe"
+          test -x "$root/runtime/bin/darwin/dafeiyu-helper.app/Contents/MacOS/dafeiyu-helper"
+          test -f "$root/assets/pet-manifest.json"
+          test -f "$root/bin/dafeiyu.mjs"
+          node "$root/bin/dafeiyu.mjs" help > /dev/null
+          # A stable file name lets README link to releases/latest/download.
+          cp "$archive" agent-dafeiyu.tgz
+          ls -lh "$archive" agent-dafeiyu.tgz
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: package
+          path: |
+            agent-dafeiyu-*.tgz
+            agent-dafeiyu.tgz
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: package
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: package
+          path: dist
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          notes="$RUNNER_TEMP/notes.md"
+          {
+            echo "## 安装"
+            echo
+            echo '```bash'
+            echo "npm install -g https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/agent-dafeiyu-${version}.tgz"
+            echo '```'
+            echo
+            echo "装好后运行 \`dafeiyu settings\`，在设置页一键接入 Claude Code；DSH 用户可直接把同一个 .tgz 添加为插件。"
+          } > "$notes"
+          flags=()
+          if [[ "$version" == *-* ]]; then flags+=(--prerelease); fi
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.tgz --clobber
+          else
+            gh release create "$TAG" dist/*.tgz \
+              --target "$GITHUB_SHA" \
+              --title "大肥鱼 $TAG" \
+              --notes-file "$notes" \
+              --generate-notes \
+              "${flags[@]}"
+          fi

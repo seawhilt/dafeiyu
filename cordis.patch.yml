@@ -1,0 +1,21 @@
+- insert:
+    - id: agent-dafeiyu
+      name: agent-dafeiyu
+      config:
+        enabled: true
+        scale: 0.6
+        bubbleScale: 1
+        activityLevel: normal
+        reducedMotion: false
+        soundEnabled: true
+        bubbleMode: auto
+        bubbleStates:
+          - SUCCESS
+          - ERROR
+          - WAITING
+        includeSubagents: false
+        webOverlay: false
+        clientTarget: auto
+        balanceEnabled: true
+        balanceSource: auto
+        desktopMode: shared

@@ -1,0 +1,118 @@
+name: Test pull requests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Superseded pull-request runs are cancelled; branch pushes are left alone so a
+# merge to main is never killed mid-flight.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          # pnpm is installed in the next step, so there is no store to cache yet.
+          package-manager-cache: false
+
+      - name: Install pnpm
+        run: npm install --global pnpm@11.21.0
+
+      - name: Install JavaScript dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Run JavaScript tests
+        run: npm test
+
+      - name: Run Python tests
+        run: python -m unittest discover -s runtime/tests -t .
+
+  macos-helper:
+    name: Build and smoke-test macOS universal Helper
+    # macos-15 is the arm64 image, so the x86_64 slice is cross-compiled and
+    # only arch-checked; an Intel-only runtime regression would not be caught.
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Run Swift core tests
+        run: swift test
+
+      - name: Install JavaScript dependencies
+        run: npm install --ignore-scripts --no-package-lock
+
+      - name: Set up Python
+        # Without this the job silently used the image's python3 (3.14 on
+        # macos-15) while the rest of CI pins 3.11.
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Run JavaScript tests
+        run: npm test
+
+      - name: Run Python tests
+        run: python3 -m unittest discover -s runtime/tests -t .
+
+      - name: Build and visually smoke-test macOS Helper
+        run: |
+          npm run build:helper:darwin
+          node scripts/test-packaged-helper.mjs
+
+      - name: Verify universal architecture and ad-hoc signature
+        run: |
+          app=runtime/bin/darwin/dafeiyu-helper.app
+          binary="$app/Contents/MacOS/dafeiyu-helper"
+          lipo "$binary" -verify_arch arm64 x86_64
+          codesign --verify --deep --strict --verbose=2 "$app"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" = "$(node -p "require('./package.json').version")"
+
+      - name: Verify macOS Helper survives npm packaging
+        run: |
+          archive=$(npm pack --silent)
+          mkdir -p .build/package-check
+          tar -xzf "$archive" -C .build/package-check
+          app=.build/package-check/package/runtime/bin/darwin/dafeiyu-helper.app
+          binary="$app/Contents/MacOS/dafeiyu-helper"
+          test -x "$binary"
+          lipo "$binary" -verify_arch arm64 x86_64
+          codesign --verify --deep --strict --verbose=2 "$app"
+          node scripts/test-linked-package.mjs .build/package-check/package
+          node scripts/test-packaged-helper.mjs --executable "$binary"

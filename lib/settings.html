@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>大肥鱼设置</title>
+<style nonce="__NONCE__">
+  :root {
+    --bg: #eef1f8;
+    --card: #ffffff;
+    --text: #26262b;
+    --muted: #6f7380;
+    --line: #e3e6ee;
+    --accent: #2f4aa8;
+    --accent-soft: #e4eaff;
+    --ok: #12a150;
+    --ok-soft: #dcf5e6;
+    --warn: #c27c00;
+    --warn-soft: #fff1d0;
+    --danger: #d23f45;
+    --radius: 18px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121521;
+      --card: #1c2133;
+      --text: #eef1fb;
+      --muted: #9aa3bd;
+      --line: #2c3349;
+      --accent: #8fa8ff;
+      --accent-soft: #26305a;
+      --ok: #5ad08a;
+      --ok-soft: #1c3a2a;
+      --warn: #f0b64a;
+      --warn-soft: #3d3119;
+      --danger: #ff7a7f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Rounded", "PingFang SC", "Microsoft YaHei UI", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 56px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 24px; }
+  header h1 { margin: 0; font-size: 22px; }
+  header .version { color: var(--muted); font-size: 13px; }
+  h2 { font-size: 15px; margin: 28px 0 10px; color: var(--muted); font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 18px 20px;
+  }
+  .card h3 { margin: 0 0 4px; font-size: 16px; display: flex; align-items: center; gap: 8px; }
+  .pill { font-size: 12px; padding: 1px 10px; border-radius: 999px; font-weight: 600; }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.off { color: var(--warn); background: var(--warn-soft); }
+  .pill.active { color: var(--accent); background: var(--accent-soft); }
+  .checks { list-style: none; padding: 0; margin: 10px 0 14px; }
+  .checks li { display: flex; gap: 8px; color: var(--muted); }
+  .checks li::before { content: "○"; color: var(--warn); }
+  .checks li.done::before { content: "✓"; color: var(--ok); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+  button {
+    font: inherit;
+    border: 1px solid var(--line);
+    background: var(--card);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .hint { color: var(--muted); font-size: 13px; margin: 8px 0 0; }
+  code, .path {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    background: var(--bg);
+    border-radius: 6px;
+    padding: 1px 6px;
+    word-break: break-all;
+  }
+  ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
+  a { color: var(--accent); }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; padding-top: 0; }
+  .row label { font-weight: 500; }
+  .row .control { display: flex; align-items: center; gap: 8px; }
+  select, input[type="range"] { font: inherit; }
+  select { padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+  .segmented { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .segmented button { border: 0; border-radius: 0; padding: 5px 14px; }
+  .segmented button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .spaced { margin-top: 14px; }
+  .characters { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; }
+  .character {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: 12px 8px; border-radius: 14px; border: 2px solid var(--line); background: var(--bg); cursor: pointer;
+    font: inherit; color: var(--text);
+  }
+  .character[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+  .character canvas, .character img { width: 96px; height: 104px; object-fit: contain; }
+  .character small { color: var(--muted); font-size: 12px; }
+  .install { display: flex; gap: 8px; flex-wrap: wrap; }
+  .install input {
+    flex: 1; min-width: 200px; padding: 6px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit;
+  }
+  .texts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+  .texts label { display: block; font-weight: 600; margin-bottom: 4px; }
+  .texts textarea {
+    width: 100%; min-height: 96px; resize: vertical; padding: 8px 10px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-size: 13px;
+  }
+  .flush { margin: 0; }
+  #toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+    background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 999px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; font-size: 13px;
+  }
+  #toast.show { opacity: 1; }
+  #offline { display: none; }
+  body.offline #offline { display: block; }
+  body.offline #content { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>🐋 大肥鱼设置</h1>
+    <span class="version" id="version"></span>
+  </header>
+
+  <div class="card" id="offline">
+    <h3>连不上大肥鱼</h3>
+    <p class="hint">桌宠可能已经关闭，或者这个页面的链接已过期。请在桌宠上右键选择「设置…」重新打开，或在终端运行 <code>dafeiyu settings</code>。</p>
+  </div>
+
+  <div id="content">
+    <h2>服务商</h2>
+    <div class="card" id="active-card">
+      <div class="row">
+        <label>当前显示</label>
+        <div class="control"><span class="segmented" id="provider-switch"></span></div>
+      </div>
+      <p class="hint" id="provider-hint"></p>
+    </div>
+
+    <div class="grid spaced">
+      <section class="card">
+        <h3>Claude Code <span class="pill" id="claude-pill"></span></h3>
+        <ul class="checks">
+          <li id="claude-hooks">事件 hooks</li>
+          <li id="claude-event">收到过 Claude Code 事件</li>
+          <li id="claude-quota">订阅额度</li>
+        </ul>
+        <div class="actions">
+          <button class="primary" id="claude-install">一键接入</button>
+          <button class="danger" id="claude-uninstall">移除接入</button>
+        </div>
+        <p class="hint">接入会在 <span class="path" id="claude-path"></span> 里加上 hooks（原文件备份为 <code>settings.json.dafeiyu.bak</code>），新开的 Claude Code 会话生效。额度通过 <code>claude /usage</code> 查询，不消耗 token。</p>
+        <p class="hint" id="claude-usage"></p>
+      </section>
+
+      <section class="card">
+        <h3>DeepSeek（DSH） <span class="pill" id="deepseek-pill"></span></h3>
+        <ul class="checks">
+          <li id="deepseek-connected">DSH 插件连接过桌宠</li>
+          <li id="deepseek-recent">最近收到 DSH 消息</li>
+        </ul>
+        <div class="actions">
+          <button class="danger" id="deepseek-forget">不再显示 DeepSeek</button>
+        </div>
+        <p class="hint">在 DSH 中安装本插件即可接入（先卸载原版 dsh-dafeiyu）：</p>
+        <ol>
+          <li>从 <a id="release-link" target="_blank" rel="noopener noreferrer">Release 页</a>下载 <code>agent-dafeiyu.tgz</code></li>
+          <li>DSH →「插件 → 添加插件」，填入下载的 <code>.tgz</code> 的完整路径</li>
+          <li>插件设置里的「运行方式」保持「共享桌宠」</li>
+        </ol>
+      </section>
+    </div>
+
+    <h2>形象</h2>
+    <div class="card">
+      <div class="characters" id="characters"></div>
+      <div class="install spaced">
+        <input id="petdex-name" type="text" placeholder="petdex 宠物名或链接，例如 bulby" autocomplete="off">
+        <button class="primary" type="button" id="petdex-install">安装</button>
+        <button type="button" id="characters-refresh">刷新</button>
+      </div>
+      <p class="hint">到 <a href="https://petdex.dev/collections" target="_blank" rel="noopener noreferrer">petdex.dev</a> 挑一只宠物，把它的名字或网页链接粘贴到上面再点「安装」。用 <code>npx codex-pets add</code> 装的宠物点「刷新」即可出现（codex-pets.net 在国内需要代理）。也可以在桌宠右键「形象」里切换。</p>
+    </div>
+
+    <h2>气泡文案</h2>
+    <div class="card">
+      <div class="texts" id="texts"></div>
+      <p class="hint">每行一句，随机挑一句显示；「干活中」里可以用 <code>{task}</code> 代表当前任务。留空的分组用内置文案。</p>
+      <div class="actions spaced">
+        <button class="primary" type="button" id="texts-save">保存文案</button>
+        <button type="button" id="texts-reset">全部恢复默认</button>
+      </div>
+    </div>
+
+    <h2>外观与行为</h2>
+    <div class="card">
+      <div class="row">
+        <label for="scale">角色大小</label>
+        <div class="control"><input type="range" id="scale" min="0.55" max="1.4" step="0.05"><span id="scale-value"></span></div>
+      </div>
+      <div class="row">
+        <label for="bubbleScale">气泡大小</label>
+        <div class="control"><input type="range" id="bubbleScale" min="0.8" max="1.2" step="0.05"><span id="bubbleScale-value"></span></div>
+      </div>
+      <div class="row">
+        <label>待机动作</label>
+        <div class="control"><span class="segmented" data-setting="activityLevel"
+          data-options='[["quiet","安静"],["normal","标准"],["lively","活泼"]]'></span></div>
+      </div>
+      <div class="row">
+        <label>碎碎念</label>
+        <div class="control"><span class="segmented" data-setting="whisperLevel"
+          data-options='[["off","关闭"],["low","偶尔"],["high","话多"]]'></span></div>
+      </div>
+      <div class="row">
+        <label>气泡显示</label>
+        <div class="control"><span class="segmented" data-setting="bubbleMode"
+          data-options='[["auto","自动"],["always","常驻"],["custom","仅提醒"],["hidden","隐藏"]]'></span></div>
+      </div>
+      <div class="row">
+        <label for="soundEnabled">完成／出错提示音</label>
+        <div class="control"><input type="checkbox" id="soundEnabled"></div>
+      </div>
+      <div class="row">
+        <label for="reducedMotion">减少动态</label>
+        <div class="control"><input type="checkbox" id="reducedMotion"></div>
+      </div>
+    </div>
+
+    <h2>关于</h2>
+    <div class="card">
+      <p class="hint flush">配置目录 <span class="path" id="home-path"></span></p>
+      <p class="hint">日志 <span class="path" id="log-path"></span></p>
+      <p class="hint">自定义碎碎念台词：编辑配置目录下的 <code>whispers.json</code>。</p>
+    </div>
+  </div>
+</main>
+<div id="toast" role="status"></div>
+<script nonce="__NONCE__">
+'use strict'
+const token = location.hash.slice(1)
+// Drop the token from the address bar and history.
+history.replaceState(null, '', location.pathname)
+
+const $ = (id) => document.getElementById(id)
+const labels = { claude: 'Claude', deepseek: 'DeepSeek' }
+let state
+
+function toast(text) {
+  const el = $('toast')
+  el.textContent = text
+  el.classList.add('show')
+  clearTimeout(toast.timer)
+  toast.timer = setTimeout(() => el.classList.remove('show'), 2200)
+}
+
+async function api(path, body) {
+  const response = await fetch(path, {
+    method: body === undefined ? 'GET' : 'POST',
+    headers: { 'x-dafeiyu-token': token, ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  })
+  const value = await response.json().catch(() => ({}))
+  if (!response.ok) throw new Error(value.error || `请求失败（${response.status}）`)
+  return value
+}
+
+function ago(ms) {
+  if (!ms) return ''
+  const seconds = Math.max(0, Math.round((Date.now() - ms) / 1000))
+  if (seconds < 60) return `${seconds} 秒前`
+  if (seconds < 3600) return `${Math.round(seconds / 60)} 分钟前`
+  return `${Math.round(seconds / 3600)} 小时前`
+}
+
+function check(id, done, text) {
+  const el = $(id)
+  el.classList.toggle('done', Boolean(done))
+  if (text !== undefined) el.textContent = text
+}
+
+function pill(id, configured, active) {
+  const el = $(id)
+  el.className = `pill ${active ? 'active' : configured ? 'ok' : 'off'}`
+  el.textContent = active ? '正在显示' : configured ? '已接入' : '未接入'
+}
+
+function renderSegmented(el, options, value, onPick) {
+  el.replaceChildren(...options.map(([id, label]) => {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.textContent = label
+    button.setAttribute('aria-pressed', String(id === value))
+    button.addEventListener('click', () => onPick(id))
+    return button
+  }))
+}
+
+function render() {
+  const { claude, deepseek, settings } = state
+  $('version').textContent = `v${state.version}`
+
+  const switcher = $('provider-switch')
+  if (state.available.length > 0) {
+    renderSegmented(switcher, state.available.map((id) => [id, labels[id] ?? id]), state.active, (id) => run(() => api('/provider', { provider: id }), `已切换到 ${labels[id]}`))
+  } else {
+    switcher.replaceChildren()
+  }
+  $('provider-hint').textContent = state.available.length === 0
+    ? '还没有接入任何服务商。在下面接入 Claude Code 或 DeepSeek 后，桌宠就会跟着它们的任务动起来。'
+    : state.available.length === 1
+      ? `只接入了 ${labels[state.available[0]]}。两个都接入后，也可以在桌宠右键菜单「服务商」里切换。`
+      : '也可以在桌宠右键菜单「服务商」里切换。'
+
+  const claudeConfigured = claude.hooksInstalled
+  pill('claude-pill', claudeConfigured, state.active === 'claude' && claudeConfigured)
+  check('claude-hooks', claude.hooksInstalled, claude.readable ? '事件 hooks' : `事件 hooks（读取失败：${claude.error}）`)
+  check('claude-event', claude.lastEventAt, claude.lastEventAt ? `收到过 Claude Code 事件（${ago(claude.lastEventAt)}）` : '还没收到 Claude Code 事件')
+  $('claude-path').textContent = claude.settingsPath
+  $('claude-install').textContent = claude.hooksInstalled ? '重新接入' : '一键接入'
+  $('claude-uninstall').disabled = !claude.hooksInstalled
+  const usage = claude.usage
+  check('claude-quota', usage, usage
+    ? `订阅额度：会话 ${Math.round(usage.session?.percent ?? 0)}% · 本周 ${Math.round(usage.weekly?.percent ?? 0)}%`
+    : '订阅额度：每 5 分钟用 claude /usage 查询一次（仅 Claude.ai 订阅）')
+  $('claude-usage').textContent = usage?.session?.resets ? `会话额度 ${usage.session.resets} 重置` : ''
+
+  pill('deepseek-pill', deepseek.connected, state.active === 'deepseek')
+  check('deepseek-connected', deepseek.connected)
+  check('deepseek-recent', deepseek.lastMessageAt, deepseek.lastMessageAt ? `最近收到 DSH 消息（${ago(deepseek.lastMessageAt)}）` : '这次运行还没收到 DSH 消息')
+  $('deepseek-forget').disabled = !deepseek.connected
+  $('release-link').href = deepseek.releaseUrl
+
+  for (const key of ['scale', 'bubbleScale']) {
+    if (document.activeElement !== $(key)) $(key).value = settings[key]
+    $(`${key}-value`).textContent = `${Number(settings[key]).toFixed(2)}×`
+  }
+  for (const key of ['soundEnabled', 'reducedMotion']) $(key).checked = Boolean(settings[key])
+  for (const el of document.querySelectorAll('.segmented[data-setting]')) {
+    const key = el.dataset.setting
+    renderSegmented(el, JSON.parse(el.dataset.options), settings[key], (value) => save({ [key]: value }))
+  }
+  $('home-path').textContent = state.paths.home
+  $('log-path').textContent = state.paths.log
+}
+
+async function refresh() {
+  try {
+    const next = await api('/config')
+    state = next
+    document.body.classList.remove('offline')
+    render()
+  } catch {
+    document.body.classList.add('offline')
+  }
+}
+
+async function run(action, done) {
+  try {
+    const result = await action()
+    if (result && result.settings) state = result
+    await refresh()
+    if (done) toast(done)
+  } catch (error) {
+    toast(error.message)
+  }
+}
+
+const save = (patch) => run(() => api('/config', { patch }), '已保存')
+
+for (const key of ['scale', 'bubbleScale']) {
+  $(key).addEventListener('input', () => { $(`${key}-value`).textContent = `${Number($(key).value).toFixed(2)}×` })
+  $(key).addEventListener('change', () => save({ [key]: Number($(key).value) }))
+}
+for (const key of ['soundEnabled', 'reducedMotion']) {
+  $(key).addEventListener('change', () => save({ [key]: $(key).checked }))
+}
+$('claude-install').addEventListener('click', () => run(() => api('/claude/install', {}), '已接入，新开的 Claude Code 会话生效'))
+$('claude-uninstall').addEventListener('click', () => {
+  if (confirm('移除 Claude Code 接入？会删除大肥鱼的 hooks。')) {
+    run(() => api('/claude/uninstall', {}), '已移除 Claude Code 接入')
+  }
+})
+$('deepseek-forget').addEventListener('click', () => {
+  if (confirm('不再把 DeepSeek 列为可选服务商？DSH 插件下次连接时会重新出现。')) {
+    run(() => api('/forget', { provider: 'deepseek' }), '已移除 DeepSeek')
+  }
+})
+
+async function blobUrl(path) {
+  const response = await fetch(path, { headers: { 'x-dafeiyu-token': token } })
+  if (!response.ok) throw new Error('preview unavailable')
+  return URL.createObjectURL(await response.blob())
+}
+
+// Codex sheets animate their idle row on a canvas; CSP allows no inline styles.
+function animateSheet(canvas, url, preview) {
+  const image = new Image()
+  image.onload = () => {
+    const context = canvas.getContext('2d')
+    let frame = 0
+    const draw = () => {
+      context.clearRect(0, 0, canvas.width, canvas.height)
+      context.drawImage(image, frame * preview.cell.width, preview.row * preview.cell.height,
+        preview.cell.width, preview.cell.height, 0, 0, canvas.width, canvas.height)
+      frame = (frame + 1) % preview.columns
+    }
+    draw()
+    setInterval(draw, preview.frameMs)
+  }
+  image.src = url
+}
+
+async function renderCharacters() {
+  const data = await api('/characters')
+  const list = $('characters')
+  list.replaceChildren(...data.list.map((item) => {
+    const card = document.createElement('button')
+    card.type = 'button'
+    card.className = 'character'
+    card.setAttribute('aria-pressed', String(item.id === data.current))
+    const name = document.createElement('span')
+    name.textContent = item.name
+    const source = document.createElement('small')
+    source.textContent = item.id === data.current ? '当前' : item.source === 'builtin' ? '内置' : 'codex-pets'
+    let art
+    if (item.source === 'builtin') {
+      art = document.createElement('img')
+      art.alt = item.name
+      blobUrl(`/characters/preview?id=${encodeURIComponent(item.id)}`).then((url) => { art.src = url }).catch(() => {})
+    } else {
+      art = document.createElement('canvas')
+      art.width = data.preview.cell.width
+      art.height = data.preview.cell.height
+      blobUrl(`/characters/preview?id=${encodeURIComponent(item.id)}`).then((url) => animateSheet(art, url, data.preview)).catch(() => {})
+    }
+    card.append(art, name, source)
+    card.addEventListener('click', () => {
+      if (item.id === data.current) return
+      run(async () => { await api('/character', { id: item.id }); await renderCharacters() }, `已换成 ${item.name}`)
+    })
+    return card
+  }))
+}
+
+async function renderTexts() {
+  const groups = await api('/bubble-text')
+  $('texts').replaceChildren(...groups.map((group) => {
+    const box = document.createElement('div')
+    const label = document.createElement('label')
+    label.textContent = group.custom ? `${group.label}（已自定义）` : group.label
+    label.htmlFor = `text-${group.key}`
+    const area = document.createElement('textarea')
+    area.id = `text-${group.key}`
+    area.dataset.key = group.key
+    area.value = group.lines.join('\n')
+    box.append(label, area)
+    return box
+  }))
+}
+
+$('characters-refresh').addEventListener('click', () => renderCharacters().catch((error) => toast(error.message)))
+$('petdex-install').addEventListener('click', () => {
+  const name = $('petdex-name').value.trim()
+  if (!name) return toast('先填宠物名或链接')
+  $('petdex-install').disabled = true
+  toast('正在从 petdex 下载…')
+  run(async () => {
+    const result = await api('/characters/install', { name })
+    $('petdex-name').value = ''
+    await renderCharacters()
+    const pet = result.list.find((item) => item.id === result.installed)
+    toast(`已安装 ${pet ? pet.name : name}，点它的卡片就能换上`)
+  }).finally(() => { $('petdex-install').disabled = false })
+})
+$('texts-save').addEventListener('click', () => {
+  const groups = {}
+  for (const area of document.querySelectorAll('#texts textarea')) groups[area.dataset.key] = area.value.split('\n')
+  run(async () => { await api('/bubble-text', { groups }); await renderTexts() }, '文案已保存')
+})
+$('texts-reset').addEventListener('click', () => {
+  if (confirm('把所有气泡文案恢复成内置文案？')) {
+    run(async () => { await api('/bubble-text', { groups: {} }); await renderTexts() }, '已恢复默认文案')
+  }
+})
+
+if (!token) document.body.classList.add('offline')
+else {
+  refresh()
+  renderCharacters().catch(() => {})
+  renderTexts().catch(() => {})
+  setInterval(refresh, 5000)
+}
+</script>
+</body>
+</html>
