@@ -176,9 +176,11 @@ npm run build:helper
 | [Chromium](https://chromium.googlesource.com/chromium/src/+/main/ui/resources/cursors/) | 拖拽时的手套光标 | BSD-3-Clause |
 | [crafter-station/petdex](https://github.com/crafter-station/petdex) | 「从 petdex 安装」形象的宠物图库 | MIT |
 | codex-pets 宠物格式、[eivmosn/dsh-pets](https://github.com/eivmosn/dsh-pets) | 换形象功能参考的格式和思路 | MIT |
+| [savanna0425/llm-pet](https://github.com/savanna0425/llm-pet) | 11 组模型主题动画形象；ChatGPT Q 版用作「小龙女」 | 署名、非商业；DeepSeek 素材另需遵循 CC BY-NC-SA 4.0 |
 
 - 代码采用 MIT 协议，见 [LICENSE](LICENSE)，其中保留了上游作者的版权声明。
 - 角色动画的许可见 [assets/dsh-pet-LICENSE.txt](assets/dsh-pet-LICENSE.txt)，光标的许可见 [assets/cursors/](assets/cursors/)，完整说明见 [ASSET_LICENSE.md](ASSET_LICENSE.md)。
-- 欢迎拿去玩、改、二次开发，保留上面的版权声明即可。
+- `llm-pet` 美术素材由 ZipZipPipe 创作；DeepSeek 鲸鱼形象还基于上善的角色设定。它们不是 MIT 素材，使用时请遵守对应署名和非商业条件。
+- 代码欢迎拿去玩、改、二次开发，保留上面的版权声明即可；美术素材请按各自许可使用。
 
-本项目是非官方项目，与 DeepSeek、Anthropic 无关。
+本项目是非官方项目，与相关模型提供方无关。

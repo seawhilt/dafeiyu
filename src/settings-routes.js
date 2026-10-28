@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bubbleTextView } from './bubble-text.js'
-import { CODEX_PREVIEW, codexSheet, installPetdexPet, listCharacters, skinPreview } from './characters.js'
+import { CODEX_PREVIEW, codexSheet, installPetdexPet, isSkin, listCharacters, skinPreview } from './characters.js'
 import { claudeIntegrationStatus, installClaudeIntegration, uninstallClaudeIntegration } from './claude-hooks.js'
 import { sanitizeSettings } from './daemon-store.js'
 
@@ -51,7 +51,7 @@ export function characterPreview(id, petsRoot) {
     whalePreview ??= readFileSync(resolve(packageRoot, 'assets', 'pet', 'idle', 'idle_001.webp'))
     return whalePreview
   }
-  if (id.startsWith('skin:')) return skinPreview(id)
+  if (isSkin(id)) return skinPreview(id)
   return codexSheet(id, petsRoot)
 }
 

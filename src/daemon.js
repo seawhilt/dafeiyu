@@ -9,7 +9,7 @@ import { createDaemonServer, HttpError } from './daemon-server.js'
 import { assertCompanionMessage, CompanionMessageKind, createMessage } from './protocol.js'
 import { isProviderId, ProviderHub } from './provider-hub.js'
 import { applyBubbleText, sanitizeBubbleText, takeLegacyBubbleText } from './bubble-text.js'
-import { codexPetsRoot } from './characters.js'
+import { codexPetsRoot, isSkin } from './characters.js'
 import { createPetDirector } from './pet-director.js'
 import { createPetWindow } from './pet-window.js'
 import { characterPreview, createSettingsRoutes, openInBrowser, settingsPage } from './settings-routes.js'
@@ -381,7 +381,7 @@ export async function startDaemon({
         if (!helper.hasCharacter(id)) throw new HttpError(404, 'unknown character')
         const bytes = characterPreview(id, petsRoot)
         if (!bytes) throw new HttpError(404, 'no preview')
-        return { contentType: id.startsWith('skin:') ? 'image/png' : 'image/webp', bytes }
+        return { contentType: isSkin(id) ? 'image/png' : 'image/webp', bytes }
       },
     },
     logger,

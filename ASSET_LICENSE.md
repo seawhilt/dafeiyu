@@ -44,16 +44,20 @@ license and any applicable attribution with these assets when redistributing.
 The supplied Winter White sequence is included as its idle animation; the other
 skins use their supplied expression images to match pet states.
 
-## GPT 小龙女 artwork (personal, non-commercial use only)
+## llm-pet character art (non-commercial use only)
 
-`assets/skins/xiaolongnv/` contains resized artwork from the user's supplied
-`baifanyu-xiaolongnv-main` source. Its README credits LIN428924379 for the
-original character/art and 3108944309zpc-ctrl for the derivative GPT 小龙女
-artwork, made with the original author's consent. The source LICENSE excludes
-artwork from its MIT grant and restricts it to personal, non-commercial use.
-The local installation retains this restriction in
-`assets/skins/xiaolongnv/ASSET-LICENSE.txt`; commercial use or redistribution
-requires separate permission from the rights holders.
+The 22 animated character packs under `assets/llm-pet/pets/` come from
+[`savanna0425/llm-pet`](https://github.com/savanna0425/llm-pet). The pack's
+`NOTICE.md` is included alongside the files. The artwork is by Bilibili creator
+[ZipZipPipe](https://space.bilibili.com/4168597); the DeepSeek fish character
+also derives from whale character art by 上善. The creators require attribution
+and non-commercial use. DeepSeek assets additionally use CC BY-NC-SA 4.0, so
+redistributions of those assets must follow the same license.
+
+The app presents `chatgpt-chibi` as the existing “小龙女” character, as
+requested, and makes the other packs available in the character picker. This
+does not imply an affiliation with the model providers. These artwork terms
+are separate from this repository's MIT-licensed code.
 
 ## Sounds and cursors
 
@@ -77,6 +81,6 @@ test suite.
 
 ## Disclaimer
 
-This is an unofficial project and is not affiliated with or endorsed by
-DeepSeek or Anthropic. Names, marks, and character-related rights belong to
-their respective owners.
+This is an unofficial project and is not affiliated with or endorsed by any
+model provider. Names, marks, and character-related rights belong to their
+respective owners.

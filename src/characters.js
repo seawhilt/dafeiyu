@@ -14,6 +14,8 @@ const PET_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 const SHEET_FILE = 'spritesheet.webp'
 const MAX_SHEET_BYTES = 32 * 1024 * 1024
 const SKIN_ROOT = fileURLToPath(new URL('../assets/skins/', import.meta.url))
+const BUNDLED_PETS_ROOT = fileURLToPath(new URL('../assets/llm-pet/pets/', import.meta.url))
+const XIAOLONGNV_PET_ID = 'chatgpt-chibi'
 const SKINS = Object.freeze([
   ['basin', '饭盆头'],
   ['beret', '贝雷帽'],
@@ -21,7 +23,6 @@ const SKINS = Object.freeze([
   ['maid', '女仆装'],
   ['winter_blue', '冬日蓝'],
   ['winter_white', '冬日白'],
-  ['xiaolongnv', '小龙女'],
 ])
 const SKIN_FRAME = Object.freeze({ width: 450, height: 600 })
 // Calibrated to the built-in whale's ~268 px visible idle height (alpha >= 16).
@@ -34,7 +35,6 @@ const SKIN_PIXEL_SCALES = Object.freeze({
   maid: 0.509,
   winter_blue: 0.527,
   winter_white: 0.486,
-  xiaolongnv: 0.508,
 })
 const LOOPING_SKIN_CLIPS = new Set(['idle', 'thinking', 'working', 'review', 'running_right', 'attention', 'tail', 'dragging'])
 const SKIN_EMOTIONS = Object.freeze({
@@ -76,8 +76,7 @@ export function codexPetsRoot(environment = process.env, home = homedir()) {
   return join(environment.CODEX_HOME || join(home, '.codex'), 'pets')
 }
 
-/** Installed codex pets with a readable pet.json and a spritesheet. */
-export function listCodexPets(root = codexPetsRoot()) {
+function listPetsAt(root) {
   let entries
   try {
     entries = readdirSync(root, { withFileTypes: true })
@@ -102,11 +101,28 @@ export function listCodexPets(root = codexPetsRoot()) {
   return pets.sort((a, b) => a.id.localeCompare(b.id))
 }
 
+/** Installed codex pets with a readable pet.json and a spritesheet. */
+export function listCodexPets(root = codexPetsRoot()) {
+  return listPetsAt(root)
+}
+
 export function listCharacters(root = codexPetsRoot(), { includeSkins = root === codexPetsRoot() } = {}) {
   const skins = includeSkins ? SKINS.filter(([id]) => {
     try { return statSync(skinDirectory(id)).isDirectory() } catch { return false }
   }).map(([id, name]) => ({ id: `skin:${id}`, name, source: 'skin' })) : []
-  return [BUILTIN_CHARACTER, ...skins, ...listCodexPets(root)]
+  if (!includeSkins) return [BUILTIN_CHARACTER, ...skins, ...listCodexPets(root)]
+  const installedPets = listCodexPets(root)
+    .filter((pet) => pet.id !== `codex:${XIAOLONGNV_PET_ID}`)
+  const installedIds = new Set(installedPets.map((pet) => pet.id))
+  const bundledPets = listPetsAt(BUNDLED_PETS_ROOT)
+    .filter((pet) => pet.id !== `codex:${XIAOLONGNV_PET_ID}` && !installedIds.has(pet.id))
+  return [
+    BUILTIN_CHARACTER,
+    ...skins,
+    { id: 'skin:xiaolongnv', name: '小龙女（ChatGPT Q版）', source: 'llm-pet' },
+    ...bundledPets,
+    ...installedPets,
+  ]
 }
 
 function skinDirectory(id) {
@@ -158,10 +174,20 @@ function skinManifest(id) {
   }
 }
 
-/** The pack directory for a `codex:<id>` character, or undefined. */
+/** Resolve a bundled or installed pack directory for a model pet. */
 export function codexPetDir(characterId, root = codexPetsRoot()) {
   const match = /^codex:([a-z0-9]+(?:-[a-z0-9]+)*)$/u.exec(characterId ?? '')
-  return match ? join(root, match[1]) : undefined
+  const slug = characterId === 'skin:xiaolongnv' ? XIAOLONGNV_PET_ID : match?.[1]
+  if (!slug) return undefined
+  const installed = join(root, slug)
+  try {
+    if (statSync(installed).isDirectory()) return installed
+  } catch {}
+  const bundled = join(BUNDLED_PETS_ROOT, slug)
+  try {
+    if (statSync(bundled).isDirectory()) return bundled
+  } catch {}
+  return match ? installed : undefined
 }
 
 function row(name, loop, frameName = name) {
@@ -256,7 +282,9 @@ export function prepareCharacterAssets(characterId, { home, root = codexPetsRoot
   const dir = codexPetDir(characterId, root)
   if (!dir) return undefined
   const pack = JSON.parse(readFileSync(join(dir, 'pet.json'), 'utf8'))
-  const name = typeof pack?.displayName === 'string' ? pack.displayName.slice(0, 40) : characterId
+  const name = characterId === 'skin:xiaolongnv'
+    ? '小龙女（ChatGPT Q版）'
+    : typeof pack?.displayName === 'string' ? pack.displayName.slice(0, 40) : characterId
   const target = join(home, 'characters', characterId.replace(':', '-'))
   mkdirSync(join(target, 'pet'), { recursive: true })
   copyFileSync(join(dir, SHEET_FILE), join(target, 'pet', SHEET_FILE))
