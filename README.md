@@ -125,7 +125,7 @@ dsh plugin --profile desktop add ./agent-dafeiyu.tgz
 
 > 共享桌宠模式下，角色大小、气泡、待机动作、减少动态、提示音和碎碎念以桌宠设置页（`dafeiyu settings` 或右键「设置…」）为准；DSH 插件卡只保留运行方式、余额、子 Agent 等 DSH 侧设置。改成独立桌宠后，插件卡里的外观设置才生效。
 
-右键菜单可以切换服务商、调整大小、减少动态，或仅在本次运行隐藏／关闭角色。动作规则见 [动作说明](docs/animation-behavior.md)。
+右键菜单可以切换服务商、调整大小、减少动态，或仅在本次运行隐藏／关闭角色。动作规则见 [动作说明](docs/animation-behavior.md)；新形象的骨骼动画制作与导入见 [动画素材制作](docs/animation-authoring.md)。
 
 ## 平台
 

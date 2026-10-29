@@ -151,7 +151,7 @@ function skinManifest(id) {
     }
   } catch {}
   const label = SKINS.find(([skinId]) => skinId === id)?.[1] ?? id
-  return {
+  return withAnimationOverrides({
     formatVersion: 1,
     characterId: `skin:${id}`,
     baseSize: SKIN_FRAME.width,
@@ -171,7 +171,44 @@ function skinManifest(id) {
     idleMicroIntervalsMs: { quiet: [20000, 40000], normal: [8000, 15000], lively: [3000, 6000] },
     interactionCooldownMs: 1200,
     actionMenu: [{ label: '动作', items: [['害羞', 'wave', `${label}～`], ['惊喜', 'jump', '哇！']] }],
+  }, skinDirectory(id))
+}
+
+const ANIMATION_FRAME_PATH = /^animations\/[a-z0-9_-]+\/[a-zA-Z0-9_.-]+\.(?:png|webp)$/u
+
+function animationOverrides(directory) {
+  try {
+    const source = JSON.parse(readFileSync(join(directory, 'animations.json'), 'utf8'))
+    if (source?.formatVersion !== 1 || !source.clips || typeof source.clips !== 'object' || Array.isArray(source.clips)) return {}
+    return Object.fromEntries(Object.entries(source.clips).flatMap(([name, clip]) => {
+      if (!/^[a-z][a-z0-9_-]*$/u.test(name) || !clip || typeof clip !== 'object' || !Array.isArray(clip.frames)) return []
+      const frames = clip.frames.filter((file) => typeof file === 'string' && ANIMATION_FRAME_PATH.test(file))
+      if (frames.length === 0 || frames.length !== clip.frames.length || frames.length > 2000) return []
+      const frameMs = Number.isFinite(clip.frameMs) ? Math.max(20, Math.min(1000, clip.frameMs)) : 100
+      return [[name, { frames, frameMs, loop: typeof clip.loop === 'boolean' ? clip.loop : LOOPING_SKIN_CLIPS.has(name) }]]
+    }))
+  } catch {
+    return {}
   }
+}
+
+function withAnimationOverrides(manifest, directory) {
+  if (!directory) return manifest
+  return { ...manifest, clips: { ...manifest.clips, ...animationOverrides(directory) } }
+}
+
+function copyAnimationFrames(from, to) {
+  const source = join(from, 'animations')
+  try {
+    for (const clip of readdirSync(source, { withFileTypes: true })) {
+      if (!clip.isDirectory() || !/^[a-z][a-z0-9_-]*$/u.test(clip.name)) continue
+      const target = join(to, 'animations', clip.name)
+      mkdirSync(target, { recursive: true })
+      for (const file of readdirSync(join(source, clip.name)).filter((name) => /^[a-zA-Z0-9_.-]+\.(?:png|webp)$/u.test(name)).sort()) {
+        copyFileSync(join(source, clip.name, file), join(target, file))
+      }
+    }
+  } catch {}
 }
 
 /** Resolve a bundled or installed pack directory for a model pet. */
@@ -200,7 +237,7 @@ function row(name, loop, frameName = name) {
 }
 
 /** The pet manifest for a codex pack: its nine rows mapped onto pet states. */
-export function codexManifest(displayName) {
+export function codexManifest(displayName, directory) {
   const clips = {
     idle: row('idle', true),
     thinking: row('waiting', true),
@@ -220,7 +257,7 @@ export function codexManifest(displayName) {
     dragging: row('runningRight', true),
     dragging_release: row('jumping', false),
   }
-  return {
+  return withAnimationOverrides({
     formatVersion: 1,
     characterId: displayName,
     baseSize: CELL.width,
@@ -256,7 +293,7 @@ export function codexManifest(displayName) {
         ['向左跑', 'run_left_once', '跑回来啦'],
       ],
     }],
-  }
+  }, directory)
 }
 
 /**
@@ -276,6 +313,7 @@ export function prepareCharacterAssets(characterId, { home, root = codexPetsRoot
         if (/^seq_\d+\.webp$/u.test(file)) copyFileSync(join(bundledSkinDir, 'seq', file), join(petTarget, 'seq', file))
       }
     } catch {}
+    copyAnimationFrames(bundledSkinDir, petTarget)
     writeFileSync(join(target, 'pet-manifest.json'), `${JSON.stringify(skinManifest(id), null, 2)}\n`)
     return target
   }
@@ -288,7 +326,8 @@ export function prepareCharacterAssets(characterId, { home, root = codexPetsRoot
   const target = join(home, 'characters', characterId.replace(':', '-'))
   mkdirSync(join(target, 'pet'), { recursive: true })
   copyFileSync(join(dir, SHEET_FILE), join(target, 'pet', SHEET_FILE))
-  writeFileSync(join(target, 'pet-manifest.json'), `${JSON.stringify(codexManifest(name), null, 2)}\n`)
+  copyAnimationFrames(dir, join(target, 'pet'))
+  writeFileSync(join(target, 'pet-manifest.json'), `${JSON.stringify(codexManifest(name, dir), null, 2)}\n`)
   return target
 }
 

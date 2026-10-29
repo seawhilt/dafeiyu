@@ -1,6 +1,6 @@
 {
   "name": "agent-dafeiyu",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "大肥鱼桌宠：Claude Code 与 DeepSeek Harness 共用的桌面 Agent 状态伴侣，右键切换服务商。",
   "author": "seawhilt",
   "type": "module",
@@ -32,6 +32,7 @@
     "scripts/build-helper.sh",
     "scripts/build-helper.mjs",
     "scripts/run-python.mjs",
+    "scripts/import-animation-frames.mjs",
     "scripts/generate_notification_sounds.py",
     "scripts/test-packaged-helper.mjs",
     "assets/pet/",
@@ -44,6 +45,7 @@
     "assets/cursor_grabbing.cur",
     "assets/cursors/",
     "docs/animation-behavior.md",
+    "docs/animation-authoring.md",
     "docs/images/",
     "cordis.patch.yml",
     "requirements.txt",

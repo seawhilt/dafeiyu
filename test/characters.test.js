@@ -67,6 +67,34 @@ test('preparing a character writes a helper-ready asset root', () => {
   }
 })
 
+test('a rig-exported animation overrides only that character clip', () => {
+  const { root, add } = petsDir()
+  const home = mkdtempSync(join(tmpdir(), 'dafeiyu-rig-home-'))
+  const frame = Buffer.from('transparent wave frame')
+  try {
+    add('mini-sama', { displayName: 'Mini Sama' }, 'SHEET')
+    mkdirSync(join(root, 'mini-sama', 'animations', 'wave'), { recursive: true })
+    writeFileSync(join(root, 'mini-sama', 'animations', 'wave', '000.png'), frame)
+    writeFileSync(join(root, 'mini-sama', 'animations.json'), JSON.stringify({
+      formatVersion: 1,
+      clips: {
+        wave: { frames: ['animations/wave/000.png'], frameMs: 42, loop: false },
+        bad: { frames: ['../../outside.png'], frameMs: 42, loop: false },
+      },
+    }))
+
+    const target = prepareCharacterAssets('codex:mini-sama', { home, root })
+    const manifest = JSON.parse(readFileSync(join(target, 'pet-manifest.json'), 'utf8'))
+    assert.deepEqual(manifest.clips.wave, { frames: ['animations/wave/000.png'], frameMs: 42, loop: false })
+    assert.match(manifest.clips.idle.frames[0], /^cell:0:0:/)
+    assert.equal(manifest.clips.bad, undefined)
+    assert.deepEqual(readFileSync(join(target, 'pet', 'animations', 'wave', '000.png')), frame)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+    rmSync(home, { recursive: true, force: true })
+  }
+})
+
 test('petdex names and links resolve to a slug, other hosts do not', async () => {
   const { petdexSlug } = await import('../src/characters.js')
   assert.equal(petdexSlug('bulby'), 'bulby')
