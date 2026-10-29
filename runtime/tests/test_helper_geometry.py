@@ -16,6 +16,7 @@ except ImportError:
     QApplication = None
 
 from runtime.helper import EventRecorder, run_visual
+from runtime.pet_geometry import tilt_allowance
 
 
 @unittest.skipUnless(QApplication is not None, 'Qt integration runs with the Helper build dependencies')
@@ -86,8 +87,10 @@ class HelperGeometryTests(unittest.TestCase):
                     message('dock', edge=None)
                     assert_anchor((8, 400))
                     message('config', bubbleMode='hidden')
-                    # Undocking restores the upright window size.
-                    self.assertEqual(window.height(), pet_height + 26)
+                    # Undocking restores the upright window size, with room
+                    # above and below for the drag lean.
+                    allowance = tilt_allowance((pet_width, pet_height))
+                    self.assertEqual(window.height(), pet_height + 26 + allowance * 2)
                     with patch.object(QDesktopServices, 'openUrl', return_value=False), patch('sys.stderr'):
                         window._open_client()
                     self.assertEqual(window.overlay_message, '无法打开 DSH')
