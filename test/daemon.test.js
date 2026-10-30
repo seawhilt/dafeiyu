@@ -228,3 +228,14 @@ test('right-click dismiss clears a failed Claude turn from the pet', async () =>
     assert.equal(lastState().state, 'IDLE')
   })
 })
+
+test('hook events arrive per source and unknown sources are rejected', async () => {
+  await withDaemon(async ({ paths, sent }) => {
+    await callDaemon('/hooks/claude', { hook_event_name: 'UserPromptSubmit', session_id: 's', cwd: '/w/app' }, { paths })
+    assert.equal(sent.filter((message) => message.kind === 'state').at(-1).state, 'THINKING')
+    await assert.rejects(
+      callDaemon('/hooks/nope', { hook_event_name: 'Stop', session_id: 's' }, { paths }),
+      (error) => error.code === 'HTTP',
+    )
+  })
+})

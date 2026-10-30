@@ -1,6 +1,5 @@
 import { randomBytes } from 'node:crypto'
 import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from 'node:fs'
-import { translateClaudeHook } from './claude-adapter.js'
 import { claudeHooksInstalled, claudeSettingsPath as defaultClaudeSettingsPath } from './claude-hooks.js'
 import { queryClaudeUsage, usageMessage } from './claude-usage.js'
 import { CompanionReducer } from './companion-reducer.js'
@@ -13,6 +12,7 @@ import { codexPetsRoot, isSkin } from './characters.js'
 import { createPetDirector } from './pet-director.js'
 import { createPetWindow } from './pet-window.js'
 import { characterPreview, createSettingsRoutes, openInBrowser, settingsPage } from './settings-routes.js'
+import { HOOK_SOURCE_IDS, hookSource } from './providers/registry.js'
 import { createUsagePoller, USAGE_AFTER_TURN_MS, USAGE_POLL_MS } from './usage-poller.js'
 import { loadWhisperLines, WhisperScheduler } from './whisper.js'
 import {
@@ -171,7 +171,7 @@ export async function startDaemon({
         whisper.setLevel(report.whisperLevel)
       }
       if (report.request === 'whisper') whisper.speak()
-      if (report.request === 'dismiss-errors') sendClaude(claudeReducer.dismissErrors())
+      if (report.request === 'dismiss-errors') sendFromSource('claude', reducers.get('claude').dismissErrors())
       if (report.request === 'settings') openSettings()
       if (typeof report.character === 'string') {
         void setCharacter(report.character).catch((error) => {
@@ -242,9 +242,13 @@ export async function startDaemon({
     displaySettings: () => ({ ...displaySettingsOf(settings), characters: helper.characters(), character: settings.character }),
     preferred: settings.provider,
   })
-  const claudeReducer = new CompanionReducer({ includeSubagents: settings.includeSubagents, hostLabel: 'Claude' })
-  const sendClaude = (messages) => {
-    for (const message of messages) hub.receive('claude', message)
+  // One reducer per hook source: each product keeps its own sessions.
+  const reducers = new Map(HOOK_SOURCE_IDS.map((id) => [
+    id,
+    new CompanionReducer({ includeSubagents: settings.includeSubagents, hostLabel: hookSource(id).label }),
+  ]))
+  const sendFromSource = (sourceId, messages) => {
+    for (const message of messages) hub.receive(sourceId, message)
   }
   let seq = 0
 
@@ -267,17 +271,22 @@ export async function startDaemon({
     logger,
   })
 
-  const handleClaudeHook = (payload) => {
-    activity.claudeLastEventAt = Date.now()
-    if (payload?.hook_event_name === 'Stop') usagePoller.afterTurn()
-    if (!claudeSeen) {
-      claudeSeen = true
-      refreshAvailability()
+  const handleHook = (sourceId, payload) => {
+    const source = hookSource(sourceId)
+    if (!source) throw new HttpError(404, 'unknown hook source')
+    if (sourceId === 'claude') {
+      activity.claudeLastEventAt = Date.now()
+      if (payload?.hook_event_name === 'Stop') usagePoller.afterTurn()
+      if (!claudeSeen) {
+        claudeSeen = true
+        refreshAvailability()
+      }
     }
-    for (const item of translateClaudeHook(payload, ++seq)) {
-      sendClaude(item.type === 'dispose'
-        ? claudeReducer.disposeSession(item.session)
-        : claudeReducer.handle(item.session, item.event))
+    const reducer = reducers.get(sourceId)
+    for (const item of source.translate(payload, ++seq)) {
+      sendFromSource(sourceId, item.type === 'dispose'
+        ? reducer.disposeSession(item.session)
+        : reducer.handle(item.session, item.event))
     }
   }
 
@@ -309,8 +318,14 @@ export async function startDaemon({
 
   const routes = {
     'GET /status': () => status(),
+    'POST /hooks/*': (body, url) => {
+      const sourceId = /^\/hooks\/([a-z0-9-]+)$/u.exec(url.pathname)?.[1]
+      handleHook(sourceId, body)
+      return { ok: true }
+    },
+    // Hook scripts from before /hooks/:source still post here.
     'POST /claude/hook': (body) => {
-      handleClaudeHook(body)
+      handleHook('claude', body)
       return { ok: true }
     },
     'POST /providers/*': (body, url) => {
@@ -401,7 +416,9 @@ export async function startDaemon({
   usagePoller.start()
   const availabilityTimer = setInterval(refreshAvailability, AVAILABILITY_POLL_MS)
   availabilityTimer.unref?.()
-  const sweepTimer = setInterval(() => sendClaude(claudeReducer.sweep()), SESSION_SWEEP_MS)
+  const sweepTimer = setInterval(() => {
+    for (const [sourceId, reducer] of reducers) sendFromSource(sourceId, reducer.sweep())
+  }, SESSION_SWEEP_MS)
   sweepTimer.unref?.()
   logger.info?.(`dafeiyu daemon listening on 127.0.0.1:${port}`)
 
