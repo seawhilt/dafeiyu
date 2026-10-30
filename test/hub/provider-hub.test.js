@@ -13,8 +13,8 @@ const state = (value, extra = {}) => createMessage('state', { state: value, mess
 const lastOf = (messages, kind) => messages.filter((message) => message.kind === kind).at(-1)
 
 test('normalizeOrder keeps known ids once and appends the missing ones', () => {
-  assert.deepEqual(normalizeOrder(['deepseek', 'nope', 'deepseek']), ['deepseek', 'claude'])
-  assert.deepEqual(normalizeOrder(undefined), ['claude', 'deepseek'])
+  assert.deepEqual(normalizeOrder(['deepseek', 'nope', 'deepseek']), ['deepseek', 'claude', 'codex', 'cursor'])
+  assert.deepEqual(normalizeOrder(undefined), ['claude', 'codex', 'cursor', 'deepseek'])
 })
 
 test('with nothing available the pet shows a disconnected hint', () => {

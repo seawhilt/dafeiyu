@@ -3,6 +3,8 @@
 // to know about one product; adding a product means adding an entry here and
 // a channel in provider-hub.js.
 import claude from './claude/index.js'
+import codex from './codex/index.js'
+import cursor from './cursor/index.js'
 
 /**
  * @typedef {{
@@ -17,11 +19,12 @@ import claude from './claude/index.js'
  *     uninstall: (path?: string) => boolean,
  *   },
  *   usage?: { query: () => Promise<object> },
+ *   setupNote?: string,  shown in the settings page next to install
  * }} HookSource
  */
 
 /** @type {Readonly<Record<string, HookSource>>} */
-const HOOK_SOURCES = Object.freeze({ claude })
+const HOOK_SOURCES = Object.freeze({ claude, codex, cursor })
 
 export const HOOK_SOURCE_IDS = Object.freeze(Object.keys(HOOK_SOURCES))
 

@@ -24,7 +24,8 @@ async function withDaemon(fn) {
   const daemon = await startDaemon({
     paths,
     logger: quiet,
-    sourcePaths: { claude: claudeSettingsPath },
+    // Codex and Cursor read temporary files too, never the real ones.
+    sourcePaths: { claude: claudeSettingsPath, codex: join(dir, 'codex-hooks.json'), cursor: join(dir, 'cursor-hooks.json') },
     openUrl: (url) => opened.push(url),
     queryUsage: () => Promise.reject(new Error('no usage in tests')),
     createHelper(options) {
@@ -82,7 +83,8 @@ const rowOf = (config, id) => config.sources.find((row) => row.id === id)
 test('config lists every source in order with what is and is not set up', async () => {
   await withDaemon(async ({ paths, claudeSettingsPath }) => {
     const config = await callDaemon('/config', undefined, { paths })
-    assert.deepEqual(config.sources.map((row) => row.id), ['claude', 'deepseek'])
+    assert.deepEqual(config.sources.map((row) => row.id), ['claude', 'codex', 'cursor', 'deepseek'])
+    assert.match(rowOf(config, 'codex').setupNote, /\/hooks/u)
     const claude = rowOf(config, 'claude')
     assert.equal(claude.kind, 'hooks')
     assert.equal(claude.configured, false)
@@ -130,8 +132,8 @@ test('sources can be switched off and reordered, and both are saved', async () =
     assert.equal((await callDaemon('/sources/claude/enable', {}, { paths })).displayed, 'claude')
 
     const reordered = await callDaemon('/sources/order', { order: ['deepseek', 'claude'] }, { paths })
-    assert.deepEqual(reordered.sources.map((row) => row.id), ['deepseek', 'claude'])
-    assert.deepEqual(loadSettings(paths).sources.order, ['deepseek', 'claude'])
+    assert.deepEqual(reordered.sources.map((row) => row.id), ['deepseek', 'claude', 'codex', 'cursor'])
+    assert.deepEqual(loadSettings(paths).sources.order, ['deepseek', 'claude', 'codex', 'cursor'])
     await assert.rejects(callDaemon('/sources/order', { order: ['nope'] }, { paths }), /order must list known sources/)
   })
 })

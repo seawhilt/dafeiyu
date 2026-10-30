@@ -441,7 +441,7 @@ selectSection(section)
 // ---- Products ----------------------------------------------------------
 
 // Product colours for the letter badges; brand logos are not bundled.
-const BADGE_COLORS = { claude: '#d97757', deepseek: '#4d6bfe' }
+const BADGE_COLORS = { claude: '#d97757', codex: '#10a37f', cursor: '#5b6170', deepseek: '#4d6bfe' }
 const DRAG_THRESHOLD_PX = 6
 
 /** @returns {[text: string, tone: 'ok' | 'warn' | '']} */
@@ -500,8 +500,8 @@ function hooksDetail(row) {
     })
     actions.append(remove)
   }
-  const note = el('p', 'hint', '接入会在配置文件里写入 hooks，原文件备份为 .dafeiyu.bak，新开的会话生效。')
-  fragment.append(actions, note)
+  fragment.append(actions, el('p', 'hint', '接入会在配置文件里写入 hooks，原文件备份为 .dafeiyu.bak，新开的会话生效。'))
+  if (row.setupNote) fragment.append(el('p', 'hint', row.setupNote))
   return fragment
 }
 

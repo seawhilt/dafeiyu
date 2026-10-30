@@ -325,6 +325,7 @@ export async function startDaemon({
       displayed: hub.displayed === id,
       lastEventAt: lastEventAt[id] ?? null,
       integration: integrationStatus(id) ?? null,
+      setupNote: hookSource(id)?.setupNote ?? null,
       usage: id === 'claude' ? claudeUsage ?? null : null,
     })),
     setOrder(order) {

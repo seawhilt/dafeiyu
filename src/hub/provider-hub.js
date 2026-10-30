@@ -7,6 +7,8 @@ import {
 
 export const PROVIDERS = Object.freeze({
   claude: Object.freeze({ id: 'claude', label: 'Claude' }),
+  codex: Object.freeze({ id: 'codex', label: 'Codex' }),
+  cursor: Object.freeze({ id: 'cursor', label: 'Cursor' }),
   deepseek: Object.freeze({ id: 'deepseek', label: 'DeepSeek' }),
 })
 export const PROVIDER_IDS = Object.freeze(Object.keys(PROVIDERS))

@@ -27,7 +27,8 @@ async function withDaemon(fn, { claude = true, queryUsage = noUsage, usageTiming
   const daemon = await startDaemon({
     paths,
     logger: quiet,
-    sourcePaths: { claude: claudeSettingsPath },
+    // Codex and Cursor read temporary files too, never the real ones.
+    sourcePaths: { claude: claudeSettingsPath, codex: join(home, 'codex-hooks.json'), cursor: join(home, 'cursor-hooks.json') },
     queryUsage,
     ...(usageTimings ? { usageTimings } : {}),
     createHelper(options) {

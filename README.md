@@ -68,6 +68,22 @@ dafeiyu install claude
 
 订阅额度由守护进程每 5 分钟（以及每轮对话结束后）运行一次 `claude -p /usage` 读取。这是 Claude Code 的本地命令，不调用模型、不消耗 token，数字和官方用量页一致；只对 Claude.ai 订阅用户有数据。
 
+### 接入 Codex
+
+```bash
+dafeiyu install codex
+```
+
+在 `~/.codex/hooks.json`（设置了 `CODEX_HOME` 时在该目录下）写入 hooks。**Codex 只运行审核过的 hooks**：写入后在 Codex 里运行一次 `/hooks`，审核并信任大肥鱼的条目，之后新开的会话生效。Codex 没有「请求失败」事件，所以出错时桌宠只会显示本轮结束；用户中断（Interrupt）显示为已停止。
+
+### 接入 Cursor
+
+```bash
+dafeiyu install cursor
+```
+
+在 `~/.cursor/hooks.json` 写入 hooks。大肥鱼只注册不会拦截 Agent 的事件（提交提示、工具完成或失败、结束、会话结束），**不注册** `preToolUse`、`beforeShellExecution` 等需要返回放行决定的 hook。因此 Cursor 下桌宠用刚完成的工具表示正在做的事，也没有「等你确认」状态。Cursor 也会执行 `~/.claude/settings.json` 里的 hooks，这些事件会被识别出来，只按 Cursor 显示一次。
+
 ### 接入 DeepSeek Harness
 
 先在 DSH 里卸载原版 dsh-dafeiyu，再从 [Release 页](https://github.com/seawhilt/dafeiyu/releases/latest) 下载 `agent-dafeiyu.tgz`，安装到对应客户端的 profile：

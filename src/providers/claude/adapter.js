@@ -36,11 +36,17 @@ function approvalIdOf(session) {
  * @param {number} [seq] Monotonic sequence used to vary status copy.
  * @returns {Array<{ type: 'event', session: object, event: object } | { type: 'dispose', session: object }>}
  */
-export function translateClaudeHook(payload, seq = Date.now()) {
-  if (!payload || typeof payload !== 'object') return []
+/** Builders for one Claude-style hook payload; Codex shares the shape. */
+export function hookEventBuilders(payload, seq) {
   const session = sessionOf(payload)
   const event = (type, data = {}) => ({ type: 'event', session, event: { type, seq, data } })
   const decided = () => event('approval/decided', { id: approvalIdOf(session) })
+  return { session, event, decided }
+}
+
+export function translateClaudeHook(payload, seq = Date.now()) {
+  if (!payload || typeof payload !== 'object') return []
+  const { session, event, decided } = hookEventBuilders(payload, seq)
   const callId = typeof payload.tool_use_id === 'string' ? payload.tool_use_id : undefined
   const name = normalizeToolName(payload.tool_name)
 
@@ -89,6 +95,9 @@ export function translateClaudeHook(payload, seq = Date.now()) {
 // leaves the Claude Code process, so prompts and file contents never travel.
 export function slimClaudeHookPayload(payload) {
   if (!payload || typeof payload !== 'object') return undefined
+  // Cursor also runs the hooks in ~/.claude/settings.json; its own source
+  // reports those sessions, so they must not show up a second time as Claude.
+  if (typeof payload.cursor_version === 'string') return undefined
   const pick = (key) => (typeof payload[key] === 'string' ? payload[key].slice(0, 512) : undefined)
   const slim = {
     hook_event_name: pick('hook_event_name'),

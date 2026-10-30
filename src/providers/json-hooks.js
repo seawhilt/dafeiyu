@@ -1,11 +1,12 @@
-// Hook installer for products that keep Claude-Code-style hooks in a JSON
-// settings file: { hooks: { <Event>: [{ hooks: [{ type, command }] }] } }.
+// Hook installer for products that keep hooks in a JSON file under `hooks`:
+// - grouped (Claude Code, Codex): { hooks: { <Event>: [{ hooks: [{ type, command }] }] } }
+// - flat (Cursor):                { hooks: { <event>: [{ command }] } }
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 export const HOOK_MARKER = 'dafeiyu-hook'
-const HOOK_TIMEOUT_SECONDS = 5
+const DEFAULT_TIMEOUT_SECONDS = 5
 
 const here = dirname(fileURLToPath(import.meta.url))
 export const hookScriptPath = resolve(here, '..', '..', 'bin', 'dafeiyu-hook.mjs')
@@ -16,6 +17,7 @@ export function hookCommand(source, nodePath = process.execPath, scriptPath = ho
 }
 
 const isOurs = (hook) => typeof hook?.command === 'string' && hook.command.includes(HOOK_MARKER)
+const isGroup = (entry) => Array.isArray(entry?.hooks)
 
 /** @returns {object} settings without any dafeiyu hook entries */
 export function withoutDafeiyuHooks(settings) {
@@ -28,29 +30,33 @@ export function withoutDafeiyuHooks(settings) {
       continue
     }
     const kept = groups
-      .map((group) => (Array.isArray(group?.hooks) ? { ...group, hooks: group.hooks.filter((hook) => !isOurs(hook)) } : group))
-      .filter((group) => !Array.isArray(group?.hooks) || group.hooks.length > 0)
+      .filter((entry) => !isOurs(entry))
+      .map((entry) => (isGroup(entry) ? { ...entry, hooks: entry.hooks.filter((hook) => !isOurs(hook)) } : entry))
+      .filter((entry) => !isGroup(entry) || entry.hooks.length > 0)
     if (kept.length > 0) nextHooks[event] = kept
   }
   return { ...settings, hooks: nextHooks }
 }
 
-/** Idempotent: existing dafeiyu entries are replaced, other hooks are kept. */
-export function withDafeiyuHooks(settings, events, command) {
+/**
+ * Idempotent: existing dafeiyu entries are replaced, other hooks are kept.
+ * @param {{ layout?: 'grouped' | 'flat', timeout?: number }} [options]
+ */
+export function withDafeiyuHooks(settings, events, command, { layout = 'grouped', timeout = DEFAULT_TIMEOUT_SECONDS } = {}) {
   const base = withoutDafeiyuHooks(settings ?? {})
   const hooks = { ...base.hooks }
-  for (const event of events) {
-    const entry = { type: 'command', command, timeout: HOOK_TIMEOUT_SECONDS }
-    hooks[event] = [...(hooks[event] ?? []), { hooks: [entry] }]
-  }
+  const entry = layout === 'flat'
+    ? { command, timeout }
+    : { hooks: [{ type: 'command', command, timeout }] }
+  for (const event of events) hooks[event] = [...(hooks[event] ?? []), entry]
   return { ...base, hooks }
 }
 
 export function hasDafeiyuHooks(settings) {
   const hooks = settings?.hooks
   if (!hooks || typeof hooks !== 'object') return false
-  return Object.values(hooks).some((groups) => Array.isArray(groups)
-    && groups.some((group) => Array.isArray(group?.hooks) && group.hooks.some(isOurs)))
+  return Object.values(hooks).some((entries) => Array.isArray(entries)
+    && entries.some((entry) => isOurs(entry) || (isGroup(entry) && entry.hooks.some(isOurs))))
 }
 
 function readSettings(path) {
@@ -94,9 +100,16 @@ function writeSettings(path, settings) {
 }
 
 /**
- * @param {{ source: string, events: readonly string[], settingsPath: () => string }} options
+ * @param {{
+ *   source: string,
+ *   events: readonly string[],
+ *   settingsPath: () => string,
+ *   layout?: 'grouped' | 'flat',
+ *   timeout?: number,
+ *   defaults?: object,  top-level fields the file must have, e.g. a schema version
+ * }} options
  */
-export function createJsonHooksIntegration({ source, events, settingsPath }) {
+export function createJsonHooksIntegration({ source, events, settingsPath, layout = 'grouped', timeout, defaults = {} }) {
   return Object.freeze({
     settingsPath,
     /** What the settings page shows; never throws. */
@@ -108,7 +121,7 @@ export function createJsonHooksIntegration({ source, events, settingsPath }) {
       }
     },
     install(path = settingsPath(), command = hookCommand(source)) {
-      writeSettings(path, withDafeiyuHooks(readSettings(path), events, command))
+      writeSettings(path, withDafeiyuHooks({ ...defaults, ...readSettings(path) }, events, command, { layout, timeout }))
     },
     /** @returns {boolean} whether anything was removed */
     uninstall(path = settingsPath()) {

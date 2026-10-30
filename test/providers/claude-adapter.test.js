@@ -136,3 +136,7 @@ test('a failed turn names the project and the error in the bubble', () => {
   assert.match(failed.message, /限流|频繁/u)
   assert.equal(failed.detail, 'my-app · API Error: Rate limit reached')
 })
+
+test('Cursor runs Claude Code hooks too; its events are left to the Cursor source', () => {
+  assert.equal(slimClaudeHookPayload({ ...base, hook_event_name: 'Stop', cursor_version: '2.4.0' }), undefined)
+})

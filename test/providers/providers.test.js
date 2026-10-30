@@ -5,7 +5,7 @@ import { isProviderId } from '../../src/hub/provider-hub.js'
 import { HOOK_SOURCE_IDS, hookSource, sourceArgument } from '../../src/providers/registry.js'
 
 test('Claude is registered as a hook source with its own translate and slim', () => {
-  assert.deepEqual(HOOK_SOURCE_IDS, ['claude'])
+  assert.deepEqual(HOOK_SOURCE_IDS, ['claude', 'codex', 'cursor'])
   const claude = hookSource('claude')
   assert.equal(claude.label, 'Claude')
   assert.equal(claude.translate, translateClaudeHook)
@@ -15,7 +15,7 @@ test('Claude is registered as a hook source with its own translate and slim', ()
 })
 
 test('unknown or inherited names are not hook sources', () => {
-  assert.equal(hookSource('codex'), undefined)
+  assert.equal(hookSource('gemini'), undefined)
   assert.equal(hookSource('toString'), undefined)
   assert.equal(hookSource(undefined), undefined)
 })

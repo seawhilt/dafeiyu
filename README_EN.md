@@ -34,6 +34,10 @@ The package carries the pet program for macOS and Windows (about 280 MB); Linux 
 
 **Upgrade and uninstall**: run `dafeiyu stop` first, then re-run the install command. On Windows this matters: the running daemon holds files in the global install directory, so upgrading without stopping can fail. To pin a version, replace `latest/download/agent-dafeiyu.tgz` with `download/v0.2.6/agent-dafeiyu-0.2.6.tgz`. To uninstall, remove the Claude Code hooks with `dafeiyu uninstall claude`, stop the daemon with `dafeiyu stop`, then `npm uninstall -g agent-dafeiyu`.
 
+**Codex**: run `dafeiyu install codex`. It writes `~/.codex/hooks.json` (under `CODEX_HOME` when set). Codex only runs reviewed hooks, so open Codex once and trust the entries with `/hooks`. Codex has no request-failure event; an interrupted turn shows as stopped.
+
+**Cursor**: run `dafeiyu install cursor`. It writes `~/.cursor/hooks.json` and registers only hooks that cannot block the agent (prompt submit, tool finished or failed, stop, session end) — never `preToolUse` or permission hooks — so the pet shows the last finished tool as the current work and has no "waiting for you" state. Cursor also runs the hooks in `~/.claude/settings.json`; those events are recognised and shown once, as Cursor.
+
 **Claude Code**: run `dafeiyu install claude` (or right-click the pet → 设置… → 接入说明 → 一键接入). It adds hooks to `~/.claude/settings.json`; `dafeiyu uninstall claude` removes them. Upgrading from 0.2.x: the hook command changed (it now carries `--source claude`), so run `dafeiyu install claude` once more. Subscription usage is read every five minutes with `claude -p /usage`, a local command that calls no model and uses no tokens.
 
 **DeepSeek Harness**: download `agent-dafeiyu.tgz` from the [latest release](https://github.com/seawhilt/dafeiyu/releases/latest) and install it with `dsh plugin --profile web add <path>` (WebUI) or the desktop app's bundled `dsh plugin --profile desktop add <path>`. The plugin's **运行方式** (mode) setting defaults to shared; standalone keeps the upstream behaviour.

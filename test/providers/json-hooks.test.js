@@ -77,3 +77,23 @@ test('installing preserves the settings file mode and does not widen it', { skip
   integration.install(fresh, command)
   assert.equal(statSync(fresh).mode & 0o777, 0o600)
 }))
+
+test('flat layout writes bare command entries and keeps the required top-level fields', () => {
+  const options = { layout: 'flat', timeout: 3 }
+  const next = withDafeiyuHooks({ hooks: { stop: [{ command: 'audit.sh' }] } }, ['stop', 'sessionEnd'], command, options)
+  assert.deepEqual(next.hooks.stop, [{ command: 'audit.sh' }, { command, timeout: 3 }])
+  assert.deepEqual(next.hooks.sessionEnd, [{ command, timeout: 3 }])
+  assert.ok(hasDafeiyuHooks(next))
+  assert.deepEqual(withoutDafeiyuHooks(next).hooks, { stop: [{ command: 'audit.sh' }] })
+})
+
+test('an integration can require top-level fields such as a schema version', () => withTempDir((dir) => {
+  const path = join(dir, 'hooks.json')
+  const integration = createJsonHooksIntegration({
+    source: 'demo', events, settingsPath: () => path, layout: 'flat', defaults: { version: 1 },
+  })
+  integration.install(path, command)
+  const written = JSON.parse(readFileSync(path, 'utf8'))
+  assert.equal(written.version, 1)
+  assert.deepEqual(written.hooks.Stop, [{ command, timeout: 5 }])
+}))
