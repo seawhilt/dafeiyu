@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { slimClaudeHookPayload, translateClaudeHook } from '../src/claude-adapter.js'
+import { slimClaudeHookPayload, translateClaudeHook } from '../src/providers/claude/adapter.js'
 import { isProviderId } from '../src/provider-hub.js'
 import { HOOK_SOURCE_IDS, hookSource, sourceArgument } from '../src/providers/registry.js'
 
@@ -10,9 +10,7 @@ test('Claude is registered as a hook source with its own translate and slim', ()
   assert.equal(claude.label, 'Claude')
   assert.equal(claude.translate, translateClaudeHook)
   assert.equal(claude.slim, slimClaudeHookPayload)
-  assert.equal(typeof claude.integration.status, 'function')
-  assert.equal(typeof claude.integration.install, 'function')
-  assert.equal(typeof claude.integration.uninstall, 'function')
+  assert.match(claude.integration.settingsPath(), /settings\.json$/u)
   assert.equal(typeof claude.usage.query, 'function')
 })
 
@@ -22,11 +20,10 @@ test('unknown or inherited names are not hook sources', () => {
   assert.equal(hookSource(undefined), undefined)
 })
 
-test('the hook script source defaults to Claude for hooks installed before --source existed', () => {
-  assert.equal(sourceArgument([]), 'claude')
+test('the hook script requires an explicit source', () => {
+  assert.equal(sourceArgument([]), undefined)
+  assert.equal(sourceArgument(['--source']), undefined)
   assert.equal(sourceArgument(['--source', 'claude']), 'claude')
-  assert.equal(sourceArgument(['--source']), 'claude')
-  assert.equal(sourceArgument(['--source', 'codex']), 'codex')
 })
 
 test('every hook source has a provider hub channel, or its events would be dropped', () => {

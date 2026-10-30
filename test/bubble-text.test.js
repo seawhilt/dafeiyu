@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import test from 'node:test'
-import { writeFileSync, existsSync } from 'node:fs'
-import { applyBubbleText, BUBBLE_GROUPS, bubbleTextView, sanitizeBubbleText, takeLegacyBubbleText } from '../src/bubble-text.js'
+import { applyBubbleText, BUBBLE_GROUPS, bubbleTextView, sanitizeBubbleText } from '../src/bubble-text.js'
 import { createMessage } from '../src/protocol.js'
 
 test('sanitising trims, drops blanks and unknown groups, and ignores unchanged defaults', () => {
@@ -13,19 +9,10 @@ test('sanitising trims, drops blanks and unknown groups, and ignores unchanged d
   assert.equal(sanitizeBubbleText({ chatter: ['x'.repeat(200)] }).chatter[0].length, 60)
 })
 
-test('a legacy bubble-text.json is read once and removed', () => {
-  const home = mkdtempSync(join(tmpdir(), 'dafeiyu-text-'))
-  try {
-    assert.equal(takeLegacyBubbleText(home), undefined)
-    writeFileSync(join(home, 'bubble-text.json'), JSON.stringify({ working: ['正在处理 {task}'] }))
-    assert.deepEqual(takeLegacyBubbleText(home), { working: ['正在处理 {task}'] })
-    assert.equal(existsSync(join(home, 'bubble-text.json')), false)
-    const view = bubbleTextView({ working: ['正在处理 {task}'] })
-    assert.equal(view.find((group) => group.key === 'working').custom, true)
-    assert.equal(view.find((group) => group.key === 'done').custom, false)
-  } finally {
-    rmSync(home, { recursive: true, force: true })
-  }
+test('the view marks which groups the user customised', () => {
+  const view = bubbleTextView({ working: ['正在处理 {task}'] })
+  assert.equal(view.find((group) => group.key === 'working').custom, true)
+  assert.equal(view.find((group) => group.key === 'done').custom, false)
 })
 
 test('custom lines replace status messages and fill in the task', () => {

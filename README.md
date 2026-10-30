@@ -10,13 +10,13 @@
 
 大肥鱼是一只透明、无边框、始终置顶的桌面角色。你在编辑器、浏览器里干活时，它会实时显示 Agent 在做什么：思考、查找、修改、执行、等待确认、完成、出错。
 
-本项目最初基于 [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu) 改写，在原来只支持 DeepSeek Harness（DSH）的基础上，增加了 Claude Code 支持、服务商切换、碎碎念、换形象等功能，致谢见文末。
+本项目最初基于 [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu) 改写，在原来只支持 DeepSeek Harness（DSH）的基础上，增加了 Claude Code 支持、多产品同时监听、碎碎念、换形象等功能，致谢见文末。
 
 <img src="docs/images/balance-preview.png" width="460" alt="大肥鱼在任务状态卡底部显示余额">
 
 ## 能做什么
 
-- **两家服务商共用一只桌宠**：配置了哪个就用哪个，两个都配了就在右键菜单「服务商」里切换。切换后立即显示该服务商的最新状态，选择会被记住。
+- **多个产品共用一只桌宠**：接入的产品同时监听，桌宠先显示最需要你处理的（等你确认 > 出错 > 工作中），一样急时按设置页里拖出来的顺序；气泡和任务列表都标出是哪个产品。每个产品可以在设置页单独开关。
 - **Claude Code**：通过 hooks 显示任务状态；气泡底部显示订阅额度，例如「Claude 额度 会话 10% · 本周 27%」。
 - **DeepSeek Harness**：显示任务状态、步骤、多任务和待办进度；气泡底部显示 DeepSeek 余额。
 - 支持拖动、贴边停靠（拖到屏幕左右边缘松手，点一下出来）、拖动倾斜、摸头、戳身体、碰尾巴，以及大小、气泡、声音和减少动态设置。
@@ -27,10 +27,9 @@
 ## 工作方式
 
 ```
-Claude Code hooks ─┐
-                   ├─> 大肥鱼守护进程（常驻，持有桌宠窗口）─> 桌宠
-DSH 插件 ──────────┘          ↑
-                        右键选当前服务商
+各产品 hooks（--source <产品>）─┐
+                                 ├─> 大肥鱼守护进程 ─> 按优先级与顺序汇总 ─> 桌宠
+DSH 插件 ────────────────────────┘
 ```
 
 守护进程由 Claude Code 的 hook 或 DSH 插件按需自动启动，也可以用 `dafeiyu start` 手动启动。
@@ -51,19 +50,21 @@ dafeiyu settings
 
 这会启动桌宠，并在浏览器打开设置页，在页面上一键接入 Claude Code，或按提示接入 DeepSeek。以后也可以在桌宠上右键选「设置…」打开。
 
-升级时先运行 `dafeiyu stop`，再重新运行一次上面的 `npm install -g` 命令。Windows 上这一步尤其重要：正在运行的守护进程会占用全局安装目录里的文件，不先停止可能升级失败。指定版本可以把 `latest/download/agent-dafeiyu.tgz` 换成 `download/v0.2.6/agent-dafeiyu-0.2.6.tgz`。卸载时先运行 `dafeiyu uninstall-claude` 移除 hooks，再 `dafeiyu stop` 关闭守护进程，最后 `npm uninstall -g agent-dafeiyu`。
+升级时先运行 `dafeiyu stop`，再重新运行一次上面的 `npm install -g` 命令。Windows 上这一步尤其重要：正在运行的守护进程会占用全局安装目录里的文件，不先停止可能升级失败。指定版本可以把 `latest/download/agent-dafeiyu.tgz` 换成 `download/v0.2.6/agent-dafeiyu-0.2.6.tgz`。卸载时先运行 `dafeiyu uninstall claude` 移除 hooks，再 `dafeiyu stop` 关闭守护进程，最后 `npm uninstall -g agent-dafeiyu`。
 
 > 正式支持 macOS 和 Windows。Linux 没有预编译的桌宠程序，会回退到 Python 版，需要自己装 `python3` 与 `PySide6>=6.7,<7`，不保证效果。
 
 ### 接入 Claude Code
 
 ```bash
-dafeiyu install-claude
+dafeiyu install claude
 ```
 
 这条命令会在 `~/.claude/settings.json` 写入 hooks，原文件备份为 `settings.json.dafeiyu.bak`，之后新开的 Claude Code 会话生效。也可以在桌宠右键「设置…」里一键接入。
 
-要撤销，运行 `dafeiyu uninstall-claude`，或在设置页点「移除接入」。
+要撤销，运行 `dafeiyu uninstall claude`，或在设置页展开「接入说明」点「移除接入」。
+
+> 从 0.2.x 升级：hooks 命令格式变了（带上 `--source claude`），升级后请重新运行一次 `dafeiyu install claude`。
 
 订阅额度由守护进程每 5 分钟（以及每轮对话结束后）运行一次 `claude -p /usage` 读取。这是 Claude Code 的本地命令，不调用模型、不消耗 token，数字和官方用量页一致；只对 Claude.ai 订阅用户有数据。
 
@@ -91,17 +92,15 @@ dsh plugin --profile desktop add ./agent-dafeiyu.tgz
 | --- | --- |
 | `dafeiyu start` / `stop` | 启动 / 关闭守护进程 |
 | `dafeiyu settings` | 打开桌宠设置页（也可在桌宠右键菜单选择「设置…」） |
-| `dafeiyu status` | 查看当前服务商和已配置的服务商 |
-| `dafeiyu use claude` / `use deepseek` | 切换服务商，和右键菜单效果相同 |
-| `dafeiyu install-claude` / `uninstall-claude` | 写入 / 移除 Claude Code 接入 |
-| `dafeiyu forget-deepseek` | 不再把 DeepSeek 列为可选服务商 |
+| `dafeiyu status` | 查看已接入并启用的产品，以及正在显示的产品 |
+| `dafeiyu install <产品>` / `uninstall <产品>` | 写入 / 移除某个产品的 hooks，例如 `install claude` |
 | `dafeiyu daemon` | 前台运行守护进程，排查问题时用 |
 
 守护进程的配置和日志在 `~/.dafeiyu/`，可以用环境变量 `DAFEIYU_HOME` 改位置。
 
 ## 余额与额度
 
-| 服务商 | 显示内容 | 数据来源 |
+| 产品 | 显示内容 | 数据来源 |
 | --- | --- | --- |
 | Claude | 会话额度、本周额度（百分比） | `claude -p /usage`（本地命令，不消耗 token） |
 | DeepSeek | 总余额，设置页可看赠送和充值明细 | DSH 中配置的 API Key 或已登录账户 |
@@ -125,7 +124,7 @@ dsh plugin --profile desktop add ./agent-dafeiyu.tgz
 
 > 共享桌宠模式下，角色大小、气泡、待机动作、减少动态、提示音和碎碎念以桌宠设置页（`dafeiyu settings` 或右键「设置…」）为准；DSH 插件卡只保留运行方式、余额、子 Agent 等 DSH 侧设置。改成独立桌宠后，插件卡里的外观设置才生效。
 
-右键菜单可以切换服务商、调整大小、减少动态，或仅在本次运行隐藏／关闭角色。动作规则见 [动作说明](docs/animation-behavior.md)；新形象的骨骼动画制作与导入见 [动画素材制作](docs/animation-authoring.md)。
+右键菜单可以忽略出错提醒、调整大小、减少动态，或仅在本次运行隐藏／关闭角色。动作规则见 [动作说明](docs/animation-behavior.md)；新形象的骨骼动画制作与导入见 [动画素材制作](docs/animation-authoring.md)。
 
 ## 平台
 

@@ -5,8 +5,9 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bubbleTextView } from './bubble-text.js'
 import { CODEX_PREVIEW, codexSheet, installPetdexPet, isSkin, listCharacters, skinPreview } from './characters.js'
-import { claudeIntegrationStatus, installClaudeIntegration, uninstallClaudeIntegration } from './claude-hooks.js'
 import { sanitizeSettings } from './daemon-store.js'
+import { isProviderId } from './provider-hub.js'
+import { hookSource } from './providers/registry.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const packageRoot = resolve(here, '..')
@@ -79,39 +80,54 @@ export function settingsPage() {
  * @param {{
  *   getSettings: () => object,
  *   applySettings: (patch: object) => void,
- *   hub: { state: object },
- *   claudeSettingsPath: string,
+ *   hub: { state: { displayed: string | null } },
+ *   sources: {
+ *     list: () => object[],
+ *     setOrder: (order: string[]) => void,
+ *     setEnabled: (id: string, enabled: boolean) => void,
+ *     install: (id: string) => void,
+ *     uninstall: (id: string) => boolean,
+ *   },
  *   paths: { home: string, log: string },
- *   activity: () => { claudeLastEventAt?: number, deepseekLastMessageAt?: number },
- *   claudeUsage: () => object | undefined,
- *   refreshAvailability: () => void,
  *   port: () => number,
  * }} ctx
  */
 export function createSettingsRoutes(ctx) {
   const overview = () => {
     const settings = ctx.getSettings()
-    const activity = ctx.activity()
     return {
       version: pkg.version,
       pid: process.pid,
-      active: ctx.hub.state.active,
-      available: ctx.hub.state.available,
+      displayed: ctx.hub.state.displayed,
       settings: Object.fromEntries(EDITABLE_SETTINGS.map((key) => [key, settings[key]])),
-      claude: {
-        ...claudeIntegrationStatus(ctx.claudeSettingsPath),
-        lastEventAt: activity.claudeLastEventAt ?? null,
-        usage: ctx.claudeUsage() ?? null,
-      },
-      deepseek: {
-        connected: settings.deepseekSeen === true,
-        lastMessageAt: activity.deepseekLastMessageAt ?? null,
+      sources: ctx.sources.list(),
+      dsh: {
         packageDir: packageRoot,
         packageFile: `${pkg.name}-${pkg.version}.tgz`,
         releaseUrl: releaseUrl(),
       },
       paths: { home: ctx.paths.home, log: ctx.paths.log },
     }
+  }
+
+  // POST /sources/<id>/<action>
+  const sourceAction = (body, url) => {
+    const [, id, action] = /^\/sources\/([a-z0-9-]+)\/([a-z]+)$/u.exec(url.pathname) ?? []
+    if (!isProviderId(id)) throw new SettingsError(404, '没有这个产品')
+    const label = ctx.sources.list().find((row) => row.id === id)?.label ?? id
+    if (action === 'enable' || action === 'disable') {
+      ctx.sources.setEnabled(id, action === 'enable')
+      return overview()
+    }
+    if (action !== 'install' && action !== 'uninstall') throw new SettingsError(404, '不支持的操作')
+    if (!hookSource(id)) throw new SettingsError(400, `${label} 不通过 hooks 接入`)
+    try {
+      if (action === 'install') ctx.sources.install(id)
+      else ctx.sources.uninstall(id)
+    } catch (error) {
+      throw new SettingsError(409, `无法修改 ${label} 的设置：${error.message}`)
+    }
+    return overview()
   }
 
   const characters = () => ({
@@ -160,23 +176,12 @@ export function createSettingsRoutes(ctx) {
       ctx.applySettings(Object.fromEntries(Object.keys(patch).map((key) => [key, clean[key]])))
       return overview()
     },
-    'POST /claude/install': () => {
-      try {
-        installClaudeIntegration(ctx.claudeSettingsPath, ctx.paths)
-      } catch (error) {
-        throw new SettingsError(409, `无法写入 Claude 设置：${error.message}`)
-      }
-      ctx.refreshAvailability()
+    'POST /sources/order': (body) => {
+      const order = body?.order
+      if (!Array.isArray(order) || !order.every(isProviderId)) throw new SettingsError(400, 'order must list known sources')
+      ctx.sources.setOrder(order)
       return overview()
     },
-    'POST /claude/uninstall': () => {
-      try {
-        uninstallClaudeIntegration(ctx.claudeSettingsPath, ctx.paths)
-      } catch (error) {
-        throw new SettingsError(409, `无法修改 Claude 设置：${error.message}`)
-      }
-      ctx.refreshAvailability()
-      return overview()
-    },
+    'POST /sources/*': sourceAction,
   }
 }

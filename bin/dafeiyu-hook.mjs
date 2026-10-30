@@ -33,11 +33,6 @@ async function main() {
   try {
     await callDaemon(route, payload)
   } catch (error) {
-    // A daemon started before an upgrade only knows the Claude route.
-    if (error?.code === 'HTTP' && error.status === 404 && sourceId === 'claude') {
-      try { await callDaemon('/claude/hook', payload) } catch {}
-      return
-    }
     if (error?.code === 'HTTP') return
     // Ending a session should not resurrect a pet nobody is watching.
     if (payload.hook_event_name === 'SessionEnd') return

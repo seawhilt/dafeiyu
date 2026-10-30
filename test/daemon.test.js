@@ -8,21 +8,26 @@ import { acquireLock, startDaemon } from '../src/daemon.js'
 import { callDaemon, DaemonBridge } from '../src/daemon-client.js'
 import { daemonPaths, loadSettings, readRuntime } from '../src/daemon-store.js'
 import { createMessage } from '../src/protocol.js'
+import { hookSource } from '../src/providers/registry.js'
 
 const quiet = { debug() {}, info() {}, warn() {}, error() {} }
 
 // Never run the real `claude /usage` in tests.
 const noUsage = () => Promise.reject(new Error('no usage in tests'))
 
+// Never read the real ~/.claude/settings.json: `claude` decides whether the
+// temporary one has our hooks installed.
 async function withDaemon(fn, { claude = true, queryUsage = noUsage, usageTimings } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'dafeiyu-daemon-'))
   const paths = daemonPaths(home)
+  const claudeSettingsPath = join(home, 'claude-settings.json')
+  if (claude) hookSource('claude').integration.install(claudeSettingsPath)
   const sent = []
   let helperOptions
   const daemon = await startDaemon({
     paths,
     logger: quiet,
-    isClaudeConfigured: () => claude,
+    sourcePaths: { claude: claudeSettingsPath },
     queryUsage,
     ...(usageTimings ? { usageTimings } : {}),
     createHelper(options) {
@@ -69,40 +74,31 @@ test('requests without the token are rejected', async () => {
   })
 })
 
-test('Claude hook events drive the pet when Claude is the only provider', async () => {
+test('Claude hook events drive the pet when Claude is the only source', async () => {
   await withDaemon(async ({ paths, sent }) => {
     assert.deepEqual((await callDaemon('/status', undefined, { paths })).available, ['claude'])
     sent.length = 0
-    await callDaemon('/claude/hook', { hook_event_name: 'UserPromptSubmit', session_id: 's', cwd: '/w/app' }, { paths })
-    assert.equal(sent.find((message) => message.kind === 'state')?.state, 'THINKING')
+    await callDaemon('/hooks/claude', { hook_event_name: 'UserPromptSubmit', session_id: 's', cwd: '/w/app' }, { paths })
+    const state = sent.find((message) => message.kind === 'state')
+    assert.equal(state.state, 'THINKING')
+    assert.match(state.detail, /^Claude/u)
   })
 })
 
-test('DSH registration adds DeepSeek, persists it, and the menu switch routes updates', async () => {
-  await withDaemon(async ({ paths, sent, helper }) => {
+test('DSH registration adds DeepSeek and the most urgent source is shown', async () => {
+  await withDaemon(async ({ paths, sent }) => {
+    await callDaemon('/hooks/claude', { hook_event_name: 'UserPromptSubmit', session_id: 's' }, { paths })
     await callDaemon('/providers/deepseek/messages', {
       register: true,
-      messages: [createMessage('state', { state: 'WORKING', message: 'ds working' })],
+      messages: [createMessage('state', { state: 'WAITING', message: 'ds waiting' })],
     }, { paths })
     const status = await callDaemon('/status', undefined, { paths })
     assert.deepEqual(status.available, ['claude', 'deepseek'])
-    assert.equal(status.active, 'claude')
+    assert.equal(status.displayed, 'deepseek', 'waiting for the user beats thinking')
     assert.equal(loadSettings(paths).deepseekSeen, true)
-    const config = sent.findLast((message) => message.kind === 'config')
-    assert.deepEqual(config.providers.map((item) => item.id), ['claude', 'deepseek'])
-
-    sent.length = 0
-    helper().onSettingsChange({ provider: 'deepseek' })
-    assert.equal(sent.find((message) => message.kind === 'state').message, 'ds working')
-    assert.equal(loadSettings(paths).provider, 'deepseek')
-
-    sent.length = 0
-    await callDaemon('/claude/hook', { hook_event_name: 'UserPromptSubmit', session_id: 's' }, { paths })
-    assert.deepEqual(sent, [], 'inactive provider stays off screen')
-
-    await assert.rejects(callDaemon('/provider', { provider: 'nope' }, { paths }), /unknown provider/)
-    assert.equal((await callDaemon('/provider', { provider: 'claude' }, { paths })).active, 'claude')
-    assert.equal((await callDaemon('/forget', { provider: 'deepseek' }, { paths })).available.join(), 'claude')
+    assert.equal(sent.findLast((message) => message.kind === 'state').message, 'ds waiting')
+    const tasks = sent.findLast((message) => message.kind === 'tasks').tasks
+    assert.deepEqual(tasks.map((task) => task.source), ['DeepSeek', 'Claude'])
   })
 })
 
@@ -118,29 +114,28 @@ test('malformed provider messages are rejected', async () => {
 
 test('helper settings reports are persisted', async () => {
   await withDaemon(async ({ paths, helper }) => {
-    helper().onSettingsChange({ scale: 1.25, reducedMotion: true, provider: 'deepseek' })
+    helper().onSettingsChange({ scale: 1.25, reducedMotion: true })
     const saved = loadSettings(paths)
     assert.equal(saved.scale, 1.25)
     assert.equal(saved.reducedMotion, true)
-    assert.equal(saved.provider, null, 'an unconfigured provider is not saved')
     assert.equal(helper().env.DAFEIYU_SCALE, '0.6')
   })
 })
 
 test('DaemonBridge registers with a snapshot then streams updates', async () => {
   await withDaemon(async ({ paths, sent }) => {
-    await callDaemon('/provider', { provider: 'claude' }, { paths })
     const bridge = new DaemonBridge({ paths, logger: quiet, autoStart: false })
     bridge.start()
     bridge.send(createMessage('hello', {}))
     bridge.send(createMessage('state', { state: 'THINKING', message: 'first' }))
-    await waitFor(() => readFileSync(paths.config, 'utf8').includes('"deepseekSeen": true'))
-    await callDaemon('/provider', { provider: 'deepseek' }, { paths })
+    await waitFor(() => loadSettings(paths).deepseekSeen)
     sent.length = 0
     bridge.send(createMessage('state', { state: 'WORKING', message: 'second' }))
     await waitFor(() => sent.some((message) => message.message === 'second'))
     bridge.stop('test')
-    await waitFor(() => sent.some((message) => message.state === 'DISCONNECTED'))
+    // A disconnected DSH no longer outranks an idle Claude.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    assert.equal((await callDaemon('/status', undefined, { paths })).displayed, 'claude')
   }, { claude: true })
 })
 
@@ -183,7 +178,7 @@ test('crossing a quota step says an urgent line while Claude is active', async (
     await waitFor(() => sent.some((message) => message.kind === 'balance' && message.source === 'subscription'))
     sent.length = 0
     // A finished turn refreshes usage soon after.
-    await callDaemon('/claude/hook', { hook_event_name: 'Stop', session_id: 's' }, { paths })
+    await callDaemon('/hooks/claude', { hook_event_name: 'Stop', session_id: 's' }, { paths })
     await waitFor(() => sent.some((message) => message.kind === 'say' && message.urgent))
     const alert = sent.find((message) => message.kind === 'say' && message.urgent)
     assert.match(alert.message, /96%/)
@@ -215,7 +210,7 @@ test('the single-instance lock is exclusive and reclaims dead owners', () => {
 test('right-click dismiss clears a failed Claude turn from the pet', async () => {
   await withDaemon(async ({ paths, sent, helper }) => {
     const lastState = () => sent.filter((message) => message.kind === 'state').at(-1)
-    await callDaemon('/claude/hook', {
+    await callDaemon('/hooks/claude', {
       hook_event_name: 'StopFailure',
       session_id: 's',
       cwd: '/work/short-manage',
@@ -223,7 +218,7 @@ test('right-click dismiss clears a failed Claude turn from the pet', async () =>
       last_assistant_message: 'API Error: 422',
     }, { paths })
     assert.equal(lastState().state, 'ERROR')
-    assert.equal(lastState().detail, 'short-manage · API Error: 422')
+    assert.equal(lastState().detail, 'Claude · short-manage · API Error: 422')
     helper().onSettingsChange({ request: 'dismiss-errors' })
     assert.equal(lastState().state, 'IDLE')
   })

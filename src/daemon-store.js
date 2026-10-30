@@ -2,7 +2,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'n
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { sanitizeBubbleText } from './bubble-text.js'
-import { PROVIDER_IDS } from './provider-hub.js'
+import { isProviderId, normalizeOrder } from './provider-hub.js'
 
 export function daemonHome(environment = process.env) {
   return environment.DAFEIYU_HOME || join(homedir(), '.dafeiyu')
@@ -19,7 +19,8 @@ export function daemonPaths(home = daemonHome()) {
 }
 
 export const DEFAULT_SETTINGS = Object.freeze({
-  provider: null,
+  // Sources the user switched off stay set up but never reach the pet.
+  sources: Object.freeze({ order: Object.freeze([]), disabled: Object.freeze([]) }),
   deepseekSeen: false,
   scale: 0.6,
   bubbleScale: 1,
@@ -37,12 +38,18 @@ export const DEFAULT_SETTINGS = Object.freeze({
 const clamp = (value, min, max, fallback) => (Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback)
 const oneOf = (value, options, fallback) => (options.includes(value) ? value : fallback)
 
+function sanitizeSources(value) {
+  const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+  const disabled = Array.isArray(raw.disabled) ? [...new Set(raw.disabled.filter(isProviderId))] : []
+  return { order: normalizeOrder(raw.order), disabled }
+}
+
 /** Accept only known keys with valid values; anything else falls back to defaults. */
 export function sanitizeSettings(value) {
   const raw = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
   const d = DEFAULT_SETTINGS
   return {
-    provider: oneOf(raw.provider, PROVIDER_IDS, d.provider),
+    sources: sanitizeSources(raw.sources),
     deepseekSeen: raw.deepseekSeen === true,
     scale: clamp(raw.scale, 0.55, 1.4, d.scale),
     bubbleScale: clamp(raw.bubbleScale, 0.8, 1.2, d.bubbleScale),

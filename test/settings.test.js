@@ -24,7 +24,7 @@ async function withDaemon(fn) {
   const daemon = await startDaemon({
     paths,
     logger: quiet,
-    claudeSettingsPath,
+    sourcePaths: { claude: claudeSettingsPath },
     openUrl: (url) => opened.push(url),
     queryUsage: () => Promise.reject(new Error('no usage in tests')),
     createHelper(options) {
@@ -77,42 +77,71 @@ test('a different origin is rejected even with the token', async () => {
   })
 })
 
-test('config reports what is and is not set up', async () => {
+const rowOf = (config, id) => config.sources.find((row) => row.id === id)
+
+test('config lists every source in order with what is and is not set up', async () => {
   await withDaemon(async ({ paths, claudeSettingsPath }) => {
     const config = await callDaemon('/config', undefined, { paths })
-    assert.equal(config.claude.hooksInstalled, false)
-    assert.equal(config.claude.settingsPath, claudeSettingsPath)
-    assert.equal(config.claude.lastEventAt, null)
-    assert.equal(config.deepseek.connected, false)
-    assert.match(config.deepseek.packageFile, /^agent-dafeiyu-.+\.tgz$/)
-    assert.equal(config.deepseek.releaseUrl, 'https://github.com/seawhilt/dafeiyu/releases/latest')
-    assert.deepEqual(config.available, [])
+    assert.deepEqual(config.sources.map((row) => row.id), ['claude', 'deepseek'])
+    const claude = rowOf(config, 'claude')
+    assert.equal(claude.kind, 'hooks')
+    assert.equal(claude.configured, false)
+    assert.equal(claude.enabled, true)
+    assert.equal(claude.integration.installed, false)
+    assert.equal(claude.integration.settingsPath, claudeSettingsPath)
+    assert.equal(claude.lastEventAt, null)
+    assert.equal(rowOf(config, 'deepseek').kind, 'dsh')
+    assert.equal(rowOf(config, 'deepseek').integration, null)
+    assert.match(config.dsh.packageFile, /^agent-dafeiyu-.+\.tgz$/)
+    assert.equal(config.dsh.releaseUrl, 'https://github.com/seawhilt/dafeiyu/releases/latest')
+    assert.equal(config.displayed, null)
     assert.equal(config.settings.whisperLevel, 'low')
 
-    await callDaemon('/claude/hook', { hook_event_name: 'UserPromptSubmit', session_id: 's' }, { paths })
-    assert.ok((await callDaemon('/config', undefined, { paths })).claude.lastEventAt > 0)
+    await callDaemon('/hooks/claude', { hook_event_name: 'UserPromptSubmit', session_id: 's' }, { paths })
+    const after = await callDaemon('/config', undefined, { paths })
+    assert.ok(rowOf(after, 'claude').lastEventAt > 0)
+    assert.equal(after.displayed, 'claude')
   })
 })
 
-test('one-click Claude install and removal edit only the given settings file', async () => {
+test('one-click install and removal edit only the given settings file', async () => {
   await withDaemon(async ({ paths, claudeSettingsPath }) => {
-    const installed = await callDaemon('/claude/install', {}, { paths })
-    assert.equal(installed.claude.hooksInstalled, true)
-    assert.ok(installed.available.includes('claude'))
-    assert.match(readFileSync(claudeSettingsPath, 'utf8'), /dafeiyu-hook/)
+    const installed = await callDaemon('/sources/claude/install', {}, { paths })
+    assert.equal(rowOf(installed, 'claude').integration.installed, true)
+    assert.equal(installed.displayed, 'claude')
+    assert.match(readFileSync(claudeSettingsPath, 'utf8'), /dafeiyu-hook.+--source claude/u)
 
-    const removed = await callDaemon('/claude/uninstall', {}, { paths })
-    assert.equal(removed.claude.hooksInstalled, false)
+    const removed = await callDaemon('/sources/claude/uninstall', {}, { paths })
+    assert.equal(rowOf(removed, 'claude').integration.installed, false)
+    assert.equal(removed.displayed, null)
     assert.deepEqual(JSON.parse(readFileSync(claudeSettingsPath, 'utf8')).statusLine, { type: 'command', command: 'echo hi' }, 'the status line is never touched')
+    await assert.rejects(callDaemon('/sources/deepseek/install', {}, { paths }), /不通过 hooks 接入/)
+    await assert.rejects(callDaemon('/sources/nope/install', {}, { paths }), /没有这个产品/)
   })
 })
 
-test('an unreadable Claude settings file is reported, not overwritten', async () => {
+test('sources can be switched off and reordered, and both are saved', async () => {
+  await withDaemon(async ({ paths }) => {
+    await callDaemon('/sources/claude/install', {}, { paths })
+    const off = await callDaemon('/sources/claude/disable', {}, { paths })
+    assert.equal(rowOf(off, 'claude').enabled, false)
+    assert.equal(off.displayed, null, 'a switched-off source never reaches the pet')
+    assert.deepEqual(loadSettings(paths).sources.disabled, ['claude'])
+    assert.equal((await callDaemon('/sources/claude/enable', {}, { paths })).displayed, 'claude')
+
+    const reordered = await callDaemon('/sources/order', { order: ['deepseek', 'claude'] }, { paths })
+    assert.deepEqual(reordered.sources.map((row) => row.id), ['deepseek', 'claude'])
+    assert.deepEqual(loadSettings(paths).sources.order, ['deepseek', 'claude'])
+    await assert.rejects(callDaemon('/sources/order', { order: ['nope'] }, { paths }), /order must list known sources/)
+  })
+})
+
+test('an unreadable settings file is reported, not overwritten', async () => {
   await withDaemon(async ({ paths, claudeSettingsPath }) => {
     writeFileSync(claudeSettingsPath, '{ broken')
     const config = await callDaemon('/config', undefined, { paths })
-    assert.equal(config.claude.readable, false)
-    await assert.rejects(callDaemon('/claude/install', {}, { paths }), /无法写入 Claude 设置/)
+    assert.equal(rowOf(config, 'claude').integration.readable, false)
+    await assert.rejects(callDaemon('/sources/claude/install', {}, { paths }), /无法修改 Claude 的设置/)
     assert.equal(readFileSync(claudeSettingsPath, 'utf8'), '{ broken')
   })
 })
@@ -201,7 +230,7 @@ function loadSettingsPage({ hash = '', fetchImpl } = {}) {
     attributes: {},
     listeners: {},
     classList: { add() {}, remove() {}, toggle() {} },
-    style: {},
+    style: { setProperty() {} },
     disabled: false,
     value: '',
     checked: false,
@@ -214,6 +243,9 @@ function loadSettingsPage({ hash = '', fetchImpl } = {}) {
     setAttribute(name, value) { this.attributes[name] = value },
     getAttribute(name) { return this.attributes[name] },
     getContext() { return { clearRect() {}, drawImage() { draws.push(true) } } },
+    querySelector: () => makeElement('a'),
+    // <template>.content for the DSH setup steps.
+    content: { cloneNode: () => makeElement('fragment') },
     click() { for (const handler of this.listeners.click ?? []) handler() },
   })
 
@@ -226,6 +258,7 @@ function loadSettingsPage({ hash = '', fetchImpl } = {}) {
       return elements.get(id)
     },
     createElement: (tag) => makeElement(tag),
+    createDocumentFragment: () => makeElement('fragment'),
     querySelectorAll: () => [],
   }
   document.body.classList = {
@@ -270,11 +303,16 @@ function loadSettingsPage({ hash = '', fetchImpl } = {}) {
 
 const SETTINGS_PAGE_CONFIG = {
   version: '0.0.0-test',
-  active: null,
-  available: [],
+  displayed: null,
   settings: { scale: 1, bubbleScale: 1, activityLevel: 'normal', whisperLevel: 'low', bubbleMode: 'auto', reducedMotion: false, soundEnabled: true },
-  claude: { hooksInstalled: false, readable: true, lastEventAt: null, settingsPath: '/tmp/claude-settings.json', usage: null },
-  deepseek: { connected: false, lastMessageAt: null, releaseUrl: 'https://example.com/releases/latest' },
+  sources: [
+    {
+      id: 'claude', label: 'Claude', kind: 'hooks', enabled: true, configured: false, displayed: false, lastEventAt: null, usage: null,
+      integration: { settingsPath: '/tmp/claude-settings.json', readable: true, installed: false },
+    },
+    { id: 'deepseek', label: 'DeepSeek', kind: 'dsh', enabled: true, configured: false, displayed: false, lastEventAt: null, usage: null, integration: null },
+  ],
+  dsh: { packageDir: '/tmp', packageFile: 'agent-dafeiyu-0.0.0.tgz', releaseUrl: 'https://example.com/releases/latest' },
   paths: { home: '/tmp/dafeiyu', log: '/tmp/dafeiyu/daemon.log' },
 }
 

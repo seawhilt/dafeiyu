@@ -1,5 +1,3 @@
-import { readFileSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
 import { CompanionMessageKind, CompanionState } from './protocol.js'
 import { statusCopyLibrary } from './status-copy.js'
 import { WHISPER_LINES } from './whisper-lines.js'
@@ -18,8 +16,6 @@ export const BUBBLE_GROUPS = Object.freeze({
 const MAX_LINES = 50
 const MAX_LINE_LENGTH = 60
 
-const fileOf = (home) => join(home, 'bubble-text.json')
-
 export function sanitizeBubbleText(value) {
   const clean = {}
   for (const key of Object.keys(BUBBLE_GROUPS)) {
@@ -34,21 +30,6 @@ export function sanitizeBubbleText(value) {
     if (kept.length > 0 && !unchanged) clean[key] = kept
   }
   return clean
-}
-
-/**
- * Earlier builds kept the lines in bubble-text.json; read them once so they
- * can move into config.json, then remove the file.
- */
-export function takeLegacyBubbleText(home) {
-  let legacy
-  try {
-    legacy = sanitizeBubbleText(JSON.parse(readFileSync(fileOf(home), 'utf8')))
-  } catch {
-    return undefined
-  }
-  rmSync(fileOf(home), { force: true })
-  return legacy
 }
 
 /** Effective lines per group for the settings page. */

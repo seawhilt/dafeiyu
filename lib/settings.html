@@ -48,7 +48,6 @@
   header h1 { margin: 0; font-size: 22px; }
   header .version { color: var(--muted); font-size: 13px; }
   h2 { font-size: 15px; margin: 28px 0 10px; color: var(--muted); font-weight: 600; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
   .card {
     background: var(--card);
     border: 1px solid var(--line);
@@ -60,10 +59,6 @@
   .pill.ok { color: var(--ok); background: var(--ok-soft); }
   .pill.off { color: var(--warn); background: var(--warn-soft); }
   .pill.active { color: var(--accent); background: var(--accent-soft); }
-  .checks { list-style: none; padding: 0; margin: 10px 0 14px; }
-  .checks li { display: flex; gap: 8px; color: var(--muted); }
-  .checks li::before { content: "○"; color: var(--warn); }
-  .checks li.done::before { content: "✓"; color: var(--ok); }
   .actions { display: flex; flex-wrap: wrap; gap: 8px; }
   button {
     font: inherit;
@@ -119,6 +114,44 @@
     border: 1px solid var(--line); background: var(--bg); color: var(--text); font: inherit; font-size: 13px;
   }
   .flush { margin: 0; }
+  .sources { list-style: none; margin: 12px 0 0; padding: 0; }
+  .source {
+    display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 4px 12px;
+    padding: 12px 4px; border-top: 1px solid var(--line); transition: opacity .15s;
+  }
+  .source:first-child { border-top: 0; }
+  .source.dragging { opacity: .4; }
+  .source.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+  .source.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
+  .source.off .badge, .source.off .source-name { opacity: .45; }
+  .handle {
+    border: 0; background: none; color: var(--muted); padding: 4px 6px; border-radius: 6px;
+    cursor: grab; font-size: 16px; line-height: 1;
+  }
+  .handle:hover, .handle:focus-visible { background: var(--bg); color: var(--text); }
+  .badge {
+    width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center;
+    color: #fff; font-weight: 700; background: var(--badge, var(--accent));
+  }
+  .source-name { font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  .source-status { color: var(--muted); font-size: 13px; }
+  .source-status.ok { color: var(--ok); }
+  .source-status.warn { color: var(--warn); }
+  .source details { grid-column: 3 / -1; font-size: 13px; }
+  .source summary { color: var(--accent); cursor: pointer; width: fit-content; }
+  .source details .actions { margin-top: 8px; }
+  .switch { position: relative; width: 42px; height: 24px; flex: none; }
+  .switch input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .switch span {
+    position: absolute; inset: 0; border-radius: 999px; background: var(--line); transition: background .15s; pointer-events: none;
+  }
+  .switch span::after {
+    content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; transition: transform .15s;
+  }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(18px); }
+  .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
   #toast {
     position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
     background: var(--text); color: var(--bg); padding: 8px 16px; border-radius: 999px;
@@ -143,48 +176,20 @@
   </div>
 
   <div id="content">
-    <h2>服务商</h2>
-    <div class="card" id="active-card">
-      <div class="row">
-        <label>当前显示</label>
-        <div class="control"><span class="segmented" id="provider-switch"></span></div>
-      </div>
-      <p class="hint" id="provider-hint"></p>
-    </div>
+    <h2>接入的产品</h2>
+    <section class="card" aria-labelledby="sources-heading">
+      <p class="hint flush" id="sources-heading">多个产品同时有任务时，桌宠先显示最需要你处理的（等你确认 &gt; 出错 &gt; 工作中）；一样急时按这里的顺序。拖动左侧手柄调整顺序，或聚焦手柄后按 ↑ ↓。</p>
+      <ol class="sources" id="sources"></ol>
+    </section>
 
-    <div class="grid spaced">
-      <section class="card">
-        <h3>Claude Code <span class="pill" id="claude-pill"></span></h3>
-        <ul class="checks">
-          <li id="claude-hooks">事件 hooks</li>
-          <li id="claude-event">收到过 Claude Code 事件</li>
-          <li id="claude-quota">订阅额度</li>
-        </ul>
-        <div class="actions">
-          <button class="primary" id="claude-install">一键接入</button>
-          <button class="danger" id="claude-uninstall">移除接入</button>
-        </div>
-        <p class="hint">接入会在 <span class="path" id="claude-path"></span> 里加上 hooks（原文件备份为 <code>settings.json.dafeiyu.bak</code>），新开的 Claude Code 会话生效。额度通过 <code>claude /usage</code> 查询，不消耗 token。</p>
-        <p class="hint" id="claude-usage"></p>
-      </section>
-
-      <section class="card">
-        <h3>DeepSeek（DSH） <span class="pill" id="deepseek-pill"></span></h3>
-        <ul class="checks">
-          <li id="deepseek-connected">DSH 插件连接过桌宠</li>
-          <li id="deepseek-recent">最近收到 DSH 消息</li>
-        </ul>
-        <div class="actions">
-          <button class="danger" id="deepseek-forget">不再显示 DeepSeek</button>
-        </div>
-        <p class="hint">在 DSH 中安装本插件即可接入（先卸载原版 dsh-dafeiyu）：</p>
-        <ol>
-          <li>从 <a id="release-link" target="_blank" rel="noopener noreferrer">Release 页</a>下载 <code>agent-dafeiyu.tgz</code></li>
-          <li>DSH →「插件 → 添加插件」，填入下载的 <code>.tgz</code> 的完整路径</li>
-          <li>插件设置里的「运行方式」保持「共享桌宠」</li>
-        </ol>
-      </section>
-    </div>
+    <template id="dsh-help">
+      <p class="hint flush">在 DSH 中安装本插件即可接入（先卸载原版 dsh-dafeiyu）：</p>
+      <ol>
+        <li>从 <a data-release target="_blank" rel="noopener noreferrer">Release 页</a>下载 <code>agent-dafeiyu.tgz</code></li>
+        <li>DSH →「插件 → 添加插件」，填入下载的 <code>.tgz</code> 的完整路径</li>
+        <li>插件设置里的「运行方式」保持「共享桌宠」</li>
+      </ol>
+    </template>
 
     <h2>形象</h2>
     <div class="card">
@@ -258,7 +263,6 @@ const token = location.hash.slice(1)
 history.replaceState(null, '', location.pathname)
 
 const $ = (id) => document.getElementById(id)
-const labels = { claude: 'Claude', deepseek: 'DeepSeek' }
 let state
 
 // Everything the page creates besides DOM nodes and must take back down.
@@ -297,17 +301,199 @@ function ago(ms) {
   return `${Math.round(seconds / 3600)} 小时前`
 }
 
-function check(id, done, text) {
-  const el = $(id)
-  el.classList.toggle('done', Boolean(done))
-  if (text !== undefined) el.textContent = text
+// Product colours for the letter badges; brand logos are not bundled.
+const BADGE_COLORS = { claude: '#d97757', deepseek: '#4d6bfe' }
+
+function sourceStatus(row) {
+  if (!row.enabled) return ['已关闭，不会显示在桌宠上', '']
+  const seen = row.lastEventAt ? ` · ${ago(row.lastEventAt)}收到事件` : ''
+  if (row.kind === 'dsh') {
+    return row.configured ? [`已连接 DSH 插件${seen}`, 'ok'] : ['还没连接过 DSH 插件', 'warn']
+  }
+  const integration = row.integration
+  if (!integration.readable) return [`读取设置失败：${integration.error}`, 'warn']
+  if (integration.installed) return [`已接入${seen || '，新开的会话生效'}`, 'ok']
+  return row.configured ? [`收到过事件，但 hooks 未写入${seen}`, 'warn'] : ['未接入', 'warn']
 }
 
-function pill(id, configured, active) {
-  const el = $(id)
-  el.className = `pill ${active ? 'active' : configured ? 'ok' : 'off'}`
-  el.textContent = active ? '正在显示' : configured ? '已接入' : '未接入'
+function usageText(usage) {
+  if (!usage) return ''
+  const reset = usage.session?.resets ? `，${usage.session.resets} 重置` : ''
+  return ` · 额度 会话 ${Math.round(usage.session?.percent ?? 0)}% · 本周 ${Math.round(usage.weekly?.percent ?? 0)}%${reset}`
 }
+
+function hooksHelp(row) {
+  const fragment = document.createDocumentFragment()
+  const hint = document.createElement('p')
+  hint.className = 'hint flush'
+  const path = document.createElement('span')
+  path.className = 'path'
+  path.textContent = row.integration.settingsPath
+  hint.append('在 ', path, ' 里写入 hooks（原文件备份为 .dafeiyu.bak），新开的会话生效。')
+  const actions = document.createElement('div')
+  actions.className = 'actions'
+  const install = document.createElement('button')
+  install.type = 'button'
+  install.className = 'primary'
+  install.textContent = row.integration.installed ? '重新接入' : '一键接入'
+  install.addEventListener('click', () => run(() => api(`/sources/${row.id}/install`, {}), `已接入 ${row.label}，新开的会话生效`))
+  actions.append(install)
+  if (row.integration.installed) {
+    const remove = document.createElement('button')
+    remove.type = 'button'
+    remove.className = 'danger'
+    remove.textContent = '移除接入'
+    remove.addEventListener('click', () => {
+      if (confirm(`移除 ${row.label} 接入？会删除大肥鱼写入的 hooks。`)) {
+        run(() => api(`/sources/${row.id}/uninstall`, {}), `已移除 ${row.label} 接入`)
+      }
+    })
+    actions.append(remove)
+  }
+  fragment.append(hint, actions)
+  return fragment
+}
+
+function dshHelp() {
+  const fragment = $('dsh-help').content.cloneNode(true)
+  fragment.querySelector('[data-release]').href = state.dsh.releaseUrl
+  return fragment
+}
+
+function sourceRow(row) {
+  const item = document.createElement('li')
+  item.className = `source${row.enabled ? '' : ' off'}`
+  item.dataset.id = row.id
+
+  const handle = document.createElement('button')
+  handle.type = 'button'
+  handle.className = 'handle'
+  handle.textContent = '≡'
+  handle.draggable = true
+  handle.setAttribute('aria-label', `调整 ${row.label} 的顺序`)
+
+  const badge = document.createElement('span')
+  badge.className = 'badge'
+  badge.setAttribute('aria-hidden', 'true')
+  badge.textContent = row.label.slice(0, 1)
+  if (BADGE_COLORS[row.id]) badge.style.setProperty('--badge', BADGE_COLORS[row.id])
+
+  const body = document.createElement('div')
+  const name = document.createElement('div')
+  name.className = 'source-name'
+  name.textContent = row.label
+  if (row.displayed) {
+    const showing = document.createElement('span')
+    showing.className = 'pill active'
+    showing.textContent = '正在显示'
+    name.append(showing)
+  }
+  const [text, tone] = sourceStatus(row)
+  const status = document.createElement('div')
+  status.className = `source-status ${tone}`
+  status.textContent = text + (row.enabled ? usageText(row.usage) : '')
+  body.append(name, status)
+
+  const toggle = document.createElement('label')
+  toggle.className = 'switch'
+  const input = document.createElement('input')
+  input.type = 'checkbox'
+  input.checked = row.enabled
+  input.setAttribute('aria-label', `在桌宠上显示 ${row.label}`)
+  input.addEventListener('change', () => run(
+    () => api(`/sources/${row.id}/${input.checked ? 'enable' : 'disable'}`, {}),
+    input.checked ? `已开启 ${row.label}` : `已关闭 ${row.label}`,
+  ))
+  toggle.append(input, document.createElement('span'))
+
+  const details = document.createElement('details')
+  details.open = openDetails.has(row.id)
+  details.addEventListener('toggle', () => (details.open ? openDetails.add(row.id) : openDetails.delete(row.id)))
+  const summary = document.createElement('summary')
+  summary.textContent = '接入说明'
+  details.append(summary, row.kind === 'hooks' ? hooksHelp(row) : dshHelp())
+
+  item.append(handle, badge, body, toggle, details)
+  return item
+}
+
+const openDetails = new Set()
+let sourcesSignature
+let dragging
+
+// Rebuild only when something shown changed; the 5 s refresh would
+// otherwise drop focus from a toggle or handle the user is on.
+function renderSources() {
+  if (dragging) return
+  const rows = state.sources.map((row) => ({ ...row, lastEventAgo: ago(row.lastEventAt) }))
+  const signature = JSON.stringify(rows)
+  if (signature === sourcesSignature) return
+  sourcesSignature = signature
+  const focusedId = document.activeElement?.closest?.('.source')?.dataset.id
+  const focusedClass = document.activeElement?.className
+  $('sources').replaceChildren(...state.sources.map(sourceRow))
+  if (focusedId) {
+    const again = $('sources').querySelector(`.source[data-id="${focusedId}"] ${focusedClass === 'handle' ? '.handle' : 'input'}`)
+    again?.focus()
+  }
+}
+
+function saveOrder(order) {
+  return run(() => api('/sources/order', { order }), '已调整顺序')
+}
+
+function moved(order, id, target, after) {
+  const rest = order.filter((item) => item !== id)
+  const index = rest.indexOf(target) + (after ? 1 : 0)
+  return [...rest.slice(0, index), id, ...rest.slice(index)]
+}
+
+function clearDropMarks() {
+  for (const el of document.querySelectorAll('.drop-before, .drop-after')) el.classList.remove('drop-before', 'drop-after')
+}
+
+$('sources').addEventListener('dragstart', (event) => {
+  const item = event.target.closest('.source')
+  if (!item) return
+  dragging = item.dataset.id
+  item.classList.add('dragging')
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', dragging)
+})
+$('sources').addEventListener('dragover', (event) => {
+  const item = event.target.closest('.source')
+  if (!dragging || !item || item.dataset.id === dragging) return
+  event.preventDefault()
+  const box = item.getBoundingClientRect()
+  clearDropMarks()
+  item.classList.add(event.clientY > box.top + box.height / 2 ? 'drop-after' : 'drop-before')
+})
+$('sources').addEventListener('drop', (event) => {
+  const item = event.target.closest('.source')
+  if (!dragging || !item || item.dataset.id === dragging) return
+  event.preventDefault()
+  const after = item.classList.contains('drop-after')
+  const order = moved(state.sources.map((row) => row.id), dragging, item.dataset.id, after)
+  dragging = undefined
+  saveOrder(order)
+})
+$('sources').addEventListener('dragend', () => {
+  dragging = undefined
+  clearDropMarks()
+  for (const el of document.querySelectorAll('.dragging')) el.classList.remove('dragging')
+  sourcesSignature = undefined
+  renderSources()
+})
+$('sources').addEventListener('keydown', (event) => {
+  if (!event.target.classList.contains('handle') || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
+  event.preventDefault()
+  const order = state.sources.map((row) => row.id)
+  const id = event.target.closest('.source').dataset.id
+  const index = order.indexOf(id) + (event.key === 'ArrowUp' ? -1 : 1)
+  if (index < 0 || index >= order.length) return
+  const next = order.filter((item) => item !== id)
+  saveOrder([...next.slice(0, index), id, ...next.slice(index)])
+})
 
 // Rebuild the buttons only when the option list itself changes. The page
 // refreshes every 5 seconds; replacing the nodes on each tick would drop
@@ -335,40 +521,9 @@ function renderSegmented(el, options, value, onPick) {
 }
 
 function render() {
-  const { claude, deepseek, settings } = state
+  const { settings } = state
   $('version').textContent = `v${state.version}`
-
-  const switcher = $('provider-switch')
-  if (state.available.length > 0) {
-    renderSegmented(switcher, state.available.map((id) => [id, labels[id] ?? id]), state.active, (id) => run(() => api('/provider', { provider: id }), `已切换到 ${labels[id]}`))
-  } else {
-    segmentedState.delete(switcher)
-    switcher.replaceChildren()
-  }
-  $('provider-hint').textContent = state.available.length === 0
-    ? '还没有接入任何服务商。在下面接入 Claude Code 或 DeepSeek 后，桌宠就会跟着它们的任务动起来。'
-    : state.available.length === 1
-      ? `只接入了 ${labels[state.available[0]]}。两个都接入后，也可以在桌宠右键菜单「服务商」里切换。`
-      : '也可以在桌宠右键菜单「服务商」里切换。'
-
-  const claudeConfigured = claude.hooksInstalled
-  pill('claude-pill', claudeConfigured, state.active === 'claude' && claudeConfigured)
-  check('claude-hooks', claude.hooksInstalled, claude.readable ? '事件 hooks' : `事件 hooks（读取失败：${claude.error}）`)
-  check('claude-event', claude.lastEventAt, claude.lastEventAt ? `收到过 Claude Code 事件（${ago(claude.lastEventAt)}）` : '还没收到 Claude Code 事件')
-  $('claude-path').textContent = claude.settingsPath
-  $('claude-install').textContent = claude.hooksInstalled ? '重新接入' : '一键接入'
-  $('claude-uninstall').disabled = !claude.hooksInstalled
-  const usage = claude.usage
-  check('claude-quota', usage, usage
-    ? `订阅额度：会话 ${Math.round(usage.session?.percent ?? 0)}% · 本周 ${Math.round(usage.weekly?.percent ?? 0)}%`
-    : '订阅额度：每 5 分钟用 claude /usage 查询一次（仅 Claude.ai 订阅）')
-  $('claude-usage').textContent = usage?.session?.resets ? `会话额度 ${usage.session.resets} 重置` : ''
-
-  pill('deepseek-pill', deepseek.connected, state.active === 'deepseek')
-  check('deepseek-connected', deepseek.connected)
-  check('deepseek-recent', deepseek.lastMessageAt, deepseek.lastMessageAt ? `最近收到 DSH 消息（${ago(deepseek.lastMessageAt)}）` : '这次运行还没收到 DSH 消息')
-  $('deepseek-forget').disabled = !deepseek.connected
-  $('release-link').href = deepseek.releaseUrl
+  renderSources()
 
   for (const key of ['scale', 'bubbleScale']) {
     if (document.activeElement !== $(key)) $(key).value = settings[key]
@@ -414,17 +569,6 @@ for (const key of ['scale', 'bubbleScale']) {
 for (const key of ['soundEnabled', 'reducedMotion']) {
   $(key).addEventListener('change', () => save({ [key]: $(key).checked }))
 }
-$('claude-install').addEventListener('click', () => run(() => api('/claude/install', {}), '已接入，新开的 Claude Code 会话生效'))
-$('claude-uninstall').addEventListener('click', () => {
-  if (confirm('移除 Claude Code 接入？会删除大肥鱼的 hooks。')) {
-    run(() => api('/claude/uninstall', {}), '已移除 Claude Code 接入')
-  }
-})
-$('deepseek-forget').addEventListener('click', () => {
-  if (confirm('不再把 DeepSeek 列为可选服务商？DSH 插件下次连接时会重新出现。')) {
-    run(() => api('/forget', { provider: 'deepseek' }), '已移除 DeepSeek')
-  }
-})
 
 async function blobUrl(path) {
   const epoch = previewEpoch

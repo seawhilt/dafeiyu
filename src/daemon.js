@@ -1,13 +1,12 @@
 import { randomBytes } from 'node:crypto'
 import { closeSync, openSync, readFileSync, rmSync, statSync, writeSync } from 'node:fs'
-import { claudeHooksInstalled, claudeSettingsPath as defaultClaudeSettingsPath } from './claude-hooks.js'
-import { queryClaudeUsage, usageMessage } from './claude-usage.js'
+import { queryClaudeUsage, usageMessage } from './providers/claude/usage.js'
 import { CompanionReducer } from './companion-reducer.js'
 import { HelperProcess } from './helper-process.js'
 import { createDaemonServer, HttpError } from './daemon-server.js'
 import { assertCompanionMessage, CompanionMessageKind, createMessage } from './protocol.js'
-import { isProviderId, ProviderHub } from './provider-hub.js'
-import { applyBubbleText, sanitizeBubbleText, takeLegacyBubbleText } from './bubble-text.js'
+import { isProviderId, normalizeOrder, PROVIDER_IDS, PROVIDERS, ProviderHub } from './provider-hub.js'
+import { applyBubbleText, sanitizeBubbleText } from './bubble-text.js'
 import { codexPetsRoot, isSkin } from './characters.js'
 import { createPetDirector } from './pet-director.js'
 import { createPetWindow } from './pet-window.js'
@@ -114,8 +113,7 @@ function helperEnvironment(settings) {
  *   paths?: ReturnType<typeof daemonPaths>,
  *   logger?: Console,
  *   createHelper?: (options: object) => { start(): void, send(message: object): void, stop(reason?: string): void },
- *   isClaudeConfigured?: () => boolean,
- *   claudeSettingsPath?: string,
+ *   sourcePaths?: Record<string, string>,
  *   openUrl?: (url: string) => void,
  *   queryUsage?: () => Promise<object>,
  *   usageTimings?: { pollMs: number, afterTurnMs: number },
@@ -128,8 +126,7 @@ export async function startDaemon({
   paths = daemonPaths(),
   logger = console,
   createHelper = (options) => new HelperProcess(options, logger),
-  claudeSettingsPath = defaultClaudeSettingsPath(),
-  isClaudeConfigured = () => claudeHooksInstalled(claudeSettingsPath),
+  sourcePaths = {},
   openUrl = openInBrowser,
   queryUsage = () => queryClaudeUsage(),
   usageTimings = { pollMs: USAGE_POLL_MS, afterTurnMs: USAGE_AFTER_TURN_MS },
@@ -138,9 +135,10 @@ export async function startDaemon({
   onExit = () => {},
 } = {}) {
   let settings = loadSettings(paths)
-  let claudeSeen = false
   let closed = false
-  const activity = {}
+  // Sources that reached the daemon this run, and when they last did.
+  const seen = new Set()
+  const lastEventAt = {}
 
   const persist = (patch) => {
     try {
@@ -154,8 +152,6 @@ export async function startDaemon({
   let hub
   let whisper
   let claudeUsage
-  const legacyBubbleText = takeLegacyBubbleText(paths.home)
-  if (legacyBubbleText) persist({ bubbleText: legacyBubbleText })
   const whisperLines = () => (settings.bubbleText.chatter
     ? { ...loadWhisperLines(paths.home), generic: settings.bubbleText.chatter }
     : loadWhisperLines(paths.home))
@@ -165,13 +161,12 @@ export async function startDaemon({
       if (Number.isFinite(report.scale)) patch.scale = report.scale
       if (Number.isFinite(report.bubbleScale)) patch.bubbleScale = report.bubbleScale
       if (typeof report.reducedMotion === 'boolean') patch.reducedMotion = report.reducedMotion
-      if (isProviderId(report.provider) && hub.select(report.provider)) patch.provider = report.provider
       if (['off', 'low', 'high'].includes(report.whisperLevel)) {
         patch.whisperLevel = report.whisperLevel
         whisper.setLevel(report.whisperLevel)
       }
       if (report.request === 'whisper') whisper.speak()
-      if (report.request === 'dismiss-errors') sendFromSource('claude', reducers.get('claude').dismissErrors())
+      if (report.request === 'dismiss-errors') dismissErrors()
       if (report.request === 'settings') openSettings()
       if (typeof report.character === 'string') {
         void setCharacter(report.character).catch((error) => {
@@ -231,8 +226,8 @@ export async function startDaemon({
     level: settings.whisperLevel,
     lines: whisperLines(),
     say: toPet,
-    activeProvider: () => hub.active,
-    usage: () => (hub.active === 'claude' ? claudeUsage : undefined),
+    activeProvider: () => hub.displayed,
+    usage: () => (hub.displayed === 'claude' ? claudeUsage : undefined),
   })
   hub = new ProviderHub({
     send: (message) => {
@@ -240,7 +235,7 @@ export async function startDaemon({
       toPet(applyBubbleText(message, settings.bubbleText))
     },
     displaySettings: () => ({ ...displaySettingsOf(settings), characters: helper.characters(), character: settings.character }),
-    preferred: settings.provider,
+    order: settings.sources.order,
   })
   // One reducer per hook source: each product keeps its own sessions.
   const reducers = new Map(HOOK_SOURCE_IDS.map((id) => [
@@ -252,18 +247,29 @@ export async function startDaemon({
   }
   let seq = 0
 
+  const integrationStatus = (id) => {
+    const source = hookSource(id)
+    return source ? source.integration.status(sourcePaths[id]) : undefined
+  }
+  // Set up: hooks are installed (or events arrive anyway), or DSH registered.
+  const isConfigured = (id) => seen.has(id)
+    || (id === 'deepseek' ? settings.deepseekSeen : integrationStatus(id)?.installed === true)
+  const isEnabled = (id) => !settings.sources.disabled.includes(id)
+
   const refreshAvailability = () => {
-    const available = []
-    if (claudeSeen || isClaudeConfigured()) available.push('claude')
-    if (settings.deepseekSeen) available.push('deepseek')
-    hub.setAvailable(available)
+    hub.setAvailable(PROVIDER_IDS.filter((id) => isConfigured(id) && isEnabled(id)))
+  }
+
+  function dismissErrors() {
+    for (const [sourceId, reducer] of reducers) sendFromSource(sourceId, reducer.dismissErrors())
+    hub.dismissErrors()
   }
 
   const usagePoller = createUsagePoller({
     query: queryUsage,
     enabled: () => !closed && hub.state.available.includes('claude'),
     onUsage(usage) {
-      if (hub.active === 'claude') whisper.alertQuota(claudeUsage, usage)
+      if (hub.displayed === 'claude') whisper.alertQuota(claudeUsage, usage)
       claudeUsage = usage
       hub.receive('claude', usageMessage(usage))
     },
@@ -274,13 +280,11 @@ export async function startDaemon({
   const handleHook = (sourceId, payload) => {
     const source = hookSource(sourceId)
     if (!source) throw new HttpError(404, 'unknown hook source')
-    if (sourceId === 'claude') {
-      activity.claudeLastEventAt = Date.now()
-      if (payload?.hook_event_name === 'Stop') usagePoller.afterTurn()
-      if (!claudeSeen) {
-        claudeSeen = true
-        refreshAvailability()
-      }
+    lastEventAt[sourceId] = Date.now()
+    if (sourceId === 'claude' && payload?.hook_event_name === 'Stop') usagePoller.afterTurn()
+    if (!seen.has(sourceId)) {
+      seen.add(sourceId)
+      refreshAvailability()
     }
     const reducer = reducers.get(sourceId)
     for (const item of source.translate(payload, ++seq)) {
@@ -299,7 +303,7 @@ export async function startDaemon({
         throw new HttpError(400, error.message)
       }
     }
-    if (provider === 'deepseek') activity.deepseekLastMessageAt = Date.now()
+    lastEventAt[provider] = Date.now()
     if (provider === 'deepseek' && body.register === true && !settings.deepseekSeen) {
       persist({ deepseekSeen: true })
       refreshAvailability()
@@ -308,6 +312,42 @@ export async function startDaemon({
   }
 
   const status = () => ({ pid: process.pid, ...hub.state })
+
+  // What the settings page lists and changes, one row per source in the
+  // user's order.
+  const sources = {
+    list: () => hub.state.order.map((id) => ({
+      id,
+      label: PROVIDERS[id].label,
+      kind: hookSource(id) ? 'hooks' : 'dsh',
+      enabled: isEnabled(id),
+      configured: isConfigured(id),
+      displayed: hub.displayed === id,
+      lastEventAt: lastEventAt[id] ?? null,
+      integration: integrationStatus(id) ?? null,
+      usage: id === 'claude' ? claudeUsage ?? null : null,
+    })),
+    setOrder(order) {
+      persist({ sources: { ...settings.sources, order: normalizeOrder(order) } })
+      hub.setOrder(settings.sources.order)
+    },
+    setEnabled(id, enabled) {
+      const others = settings.sources.disabled.filter((item) => item !== id)
+      persist({ sources: { ...settings.sources, disabled: enabled ? others : [...others, id] } })
+      refreshAvailability()
+    },
+    install(id) {
+      hookSource(id).integration.install(sourcePaths[id])
+      refreshAvailability()
+    },
+    uninstall(id) {
+      const removed = hookSource(id).integration.uninstall(sourcePaths[id])
+      // Sessions already running keep their old hooks until they end.
+      seen.delete(id)
+      refreshAvailability()
+      return removed
+    },
+  }
 
   // Display settings changed from the settings page take effect at once.
   const applySettings = (patch) => {
@@ -323,39 +363,18 @@ export async function startDaemon({
       handleHook(sourceId, body)
       return { ok: true }
     },
-    // Hook scripts from before /hooks/:source still post here.
-    'POST /claude/hook': (body) => {
-      handleHook('claude', body)
-      return { ok: true }
-    },
     'POST /providers/*': (body, url) => {
       const provider = /^\/providers\/([a-z]+)\/messages$/u.exec(url.pathname)?.[1]
       if (!isProviderId(provider)) throw new HttpError(404, 'unknown provider')
       handleProviderMessages(provider, body)
       return { ok: true }
     },
-    'POST /provider': (body) => {
-      if (!isProviderId(body.provider)) throw new HttpError(400, 'unknown provider')
-      if (!hub.select(body.provider)) throw new HttpError(409, `${body.provider} is not configured`)
-      persist({ provider: body.provider })
-      return status()
-    },
-    'POST /forget': (body) => {
-      if (body.provider !== 'deepseek') throw new HttpError(400, 'only deepseek can be forgotten; remove Claude hooks instead')
-      persist({ deepseekSeen: false })
-      hub.resetProvider('deepseek')
-      refreshAvailability()
-      return status()
-    },
     ...createSettingsRoutes({
       getSettings: () => settings,
       applySettings,
       hub,
-      claudeSettingsPath,
+      sources,
       paths,
-      activity: () => ({ ...activity }),
-      claudeUsage: () => claudeUsage,
-      refreshAvailability,
       port: () => port,
       petsRoot,
       fetchImpl,

@@ -123,39 +123,15 @@ def action_menu_groups(manifest: dict[str, Any]) -> list[tuple[str, list[tuple[s
     return groups or [("", list(ACTION_MENU))]
 
 
-def parse_providers(
-    message: dict[str, Any],
-    current: list[tuple[str, str]],
-    current_provider: str,
-) -> tuple[list[tuple[str, str]], str]:
-    """Read the provider list and active provider from a CONFIG message.
-
-    Fields that are absent keep their current value, so an older host that
-    never sends providers leaves the menu unchanged.
-    """
-    providers = current
-    raw = message.get("providers")
-    if isinstance(raw, list):
-        providers = [
-            (str(item["id"]), str(item.get("label") or item["id"]))
-            for item in raw
-            if isinstance(item, dict) and isinstance(item.get("id"), str)
-        ]
-    provider = current_provider
-    if "provider" in message:
-        provider = message["provider"] if isinstance(message["provider"], str) else ""
-    return providers, provider
-
-
-def can_dismiss_errors(provider: str, status_state: str, tasks: list[dict[str, Any]]) -> bool:
-    """Offer "忽略出错提醒" only when an error is on screen that the daemon owns.
-
-    The daemon tracks Claude sessions itself; other providers keep their own
-    state, so the request would do nothing for them.
-    """
-    if provider != "claude":
-        return False
+def can_dismiss_errors(status_state: str, tasks: list[dict[str, Any]]) -> bool:
+    """Offer "忽略出错提醒" only while an error is on screen."""
     return status_state == "ERROR" or any(task.get("state") == "ERROR" for task in tasks)
+
+
+def task_line(state_label: str, task: dict[str, Any]) -> str:
+    """One row of the multi-task card: state, source product, then what it is."""
+    label = task.get("project") or task.get("task") or task.get("message") or state_label
+    return " · ".join(str(part) for part in (state_label, task.get("source"), label) if part)
 
 
 def emit_reply(kind: str, **payload: Any) -> None:
@@ -485,8 +461,6 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.tasks: list[dict[str, Any]] = []
             self.webui_url = os.environ.get("DAFEIYU_WEBUI_URL", "http://127.0.0.1:3080/")
             self.open_label = os.environ.get("DAFEIYU_OPEN_LABEL", "打开 DSH")
-            self.providers: list[tuple[str, str]] = []
-            self.provider = ""
             self.whisper_level = ""
             self.characters: list[tuple[str, str]] = []
             self.character = ""
@@ -604,7 +578,6 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self.webui_url = message["openUrl"]
             if isinstance(message.get("openLabel"), str):
                 self.open_label = message["openLabel"]
-            self.providers, self.provider = parse_providers(message, self.providers, self.provider)
             raw_characters = message.get("characters")
             if isinstance(raw_characters, list):
                 self.characters = [
@@ -1252,8 +1225,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 row_y = card_y + round((38 + index * 22) * s)
                 state = str(task.get("state", "IDLE"))
                 state_label = self.LABELS.get(state, state)
-                label = task.get("project") or task.get("task") or task.get("message") or state_label
-                line = f"{state_label} · {label}"
+                line = task_line(state_label, task)
                 _, foreground = self._status_colors(state)
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(foreground)
@@ -1449,14 +1421,6 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 action.setCheckable(True)
                 action.setChecked(abs(self.bubble_scale - bubble_scale) < 0.05)
                 bubble_size_actions[action] = bubble_scale
-            provider_actions = {}
-            if len(self.providers) > 1:
-                provider_menu = menu.addMenu("服务商")
-                for provider_id, label in self.providers:
-                    action = provider_menu.addAction(label)
-                    action.setCheckable(True)
-                    action.setChecked(provider_id == self.provider)
-                    provider_actions[action] = provider_id
             action_menu = menu.addMenu("动作")
             action_items = {}
             for group_label, entries in action_menu_groups(manifest):
@@ -1488,7 +1452,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             reduced_action.setChecked(self.reduced_motion)
             dismiss_action = (
                 menu.addAction("忽略出错提醒")
-                if can_dismiss_errors(self.provider, self.status_state, self.tasks)
+                # Only the shared daemon answers this request.
+                if self.whisper_level and can_dismiss_errors(self.status_state, self.tasks)
                 else None
             )
             open_webui_action = menu.addAction(self.open_label) if self.webui_url and self.open_label else None
@@ -1522,9 +1487,6 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 emit_reply("settings", whisperLevel=self.whisper_level)
             elif selected in character_actions:
                 emit_reply("settings", character=character_actions[selected])
-            elif selected in provider_actions:
-                self.provider = provider_actions[selected]
-                emit_reply("settings", provider=self.provider)
             elif selected == reduced_action:
                 self._set_reduced_motion(reduced_action.isChecked())
                 self._save_layout()

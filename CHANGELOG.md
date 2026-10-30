@@ -2,6 +2,22 @@
 
 本项目最初基于 [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu) 0.1.20，之前的版本历史见上游仓库。
 
+## 未发布
+
+### 不兼容变更
+
+- hooks 命令改为 `dafeiyu-hook.mjs --source <产品>`，旧版写入的 hooks 不再生效；升级后运行一次 `dafeiyu install claude`。
+- 命令行改为 `dafeiyu install <产品>` / `uninstall <产品>`；删除 `use`、`install-claude`、`uninstall-claude`、`forget-deepseek`。
+- 删除右键「服务商」菜单和 `POST /provider`、`POST /forget`、`POST /claude/hook` 等旧接口；配置里的 `provider` 字段由 `sources`（顺序、关闭的产品）取代。
+- 不再迁移旧版的 `bubble-text.json` 和旧状态栏包装。
+
+### 新增
+
+- 多个产品同时监听：桌宠显示最需要处理的那个（等你确认 > 出错 > 工作中），一样急时按设置页里的顺序；气泡和任务列表标出产品名。
+- 设置页的「接入的产品」列表：拖动或按 ↑ ↓ 调整顺序、开关单个产品、一键接入或移除。
+- 产品接入注册表（`src/providers/`），新增产品只需加一个目录。
+- 出错时气泡说明错误类型和「项目 · 报错原文」；右键「忽略出错提醒」；出错 15 分钟后自动清除，2 小时没有事件的会话自动移除。
+
 ## 0.2.8 · 2026-10-29
 
 ### 修复

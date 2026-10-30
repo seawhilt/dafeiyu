@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { normalizeToolName, slimClaudeHookPayload, translateClaudeHook } from '../src/claude-adapter.js'
+import { normalizeToolName, slimClaudeHookPayload, translateClaudeHook } from '../src/providers/claude/adapter.js'
 import { CompanionReducer } from '../src/companion-reducer.js'
 
 const base = { session_id: 's1', cwd: '/work/my-app' }

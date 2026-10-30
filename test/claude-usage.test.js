@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { claudeCommands, parseUsageReport, queryClaudeUsage, usageMessage, usageSummary } from '../src/claude-usage.js'
+import { claudeCommands, parseUsageReport, queryClaudeUsage, usageMessage, usageSummary } from '../src/providers/claude/usage.js'
 
 const REPORT = `You are currently using your subscription to power your Claude Code usage
 

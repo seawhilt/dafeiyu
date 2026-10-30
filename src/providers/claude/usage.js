@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { CompanionMessageKind, createMessage } from './protocol.js'
+import { CompanionMessageKind, createMessage } from '../../protocol.js'
 
 // Subscription usage comes from Claude Code's own `/usage` command run in
 // print mode: it is a local command (no model call, no tokens), uses Claude
