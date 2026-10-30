@@ -8,7 +8,7 @@
 // all other plugins keep starting normally.
 let plugin
 try {
-  plugin = await import('./plugin.js')
+  plugin = await import('./dsh/plugin.js')
 } catch (error) {
   const detail = error instanceof Error ? error.message : String(error)
   console.error(

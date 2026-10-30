@@ -10,6 +10,7 @@
 - 命令行改为 `dafeiyu install <产品>` / `uninstall <产品>`；删除 `use`、`install-claude`、`uninstall-claude`、`forget-deepseek`。
 - 删除右键「服务商」菜单和 `POST /provider`、`POST /forget`、`POST /claude/hook` 等旧接口；配置里的 `provider` 字段由 `sources`（顺序、关闭的产品）取代。
 - 不再迁移旧版的 `bubble-text.json` 和旧状态栏包装。
+- 源码按职责分目录：`src/core`（状态机、协议、文案）、`src/hub`、`src/providers`、`src/daemon`、`src/pet`、`src/dsh`、`src/util`；`lib/` 取消，DSH 网页端改为 `src/dsh/client.js`（`exports["./client"]` 同步更新），测试按同样结构分目录。
 
 ### 新增
 

@@ -10,16 +10,14 @@
   },
   "exports": {
     ".": "./src/index.js",
-    "./client": "./lib/client.js",
-    "./protocol": "./src/protocol.js",
-    "./reducer": "./src/companion-reducer.js",
+    "./client": "./src/dsh/client.js",
+    "./protocol": "./src/core/protocol.js",
+    "./reducer": "./src/core/companion-reducer.js",
     "./package.json": "./package.json"
   },
   "files": [
     "bin/",
     "src/",
-    "lib/client.js",
-    "lib/settings.html",
     "runtime/helper.py",
     "runtime/animation_model.py",
     "runtime/layout_store.py",
@@ -69,8 +67,8 @@
     "@standard-schema/spec"
   ],
   "scripts": {
-    "test": "node --test --test-timeout=10000 test/*.test.js",
-    "test:helper": "node --test test/helper-lifecycle.test.js",
+    "test": "node --test --test-timeout=10000 'test/**/*.test.js'",
+    "test:helper": "node --test test/pet/helper-lifecycle.test.js",
     "test:python": "node scripts/run-python.mjs -m unittest discover -s runtime/tests -t .",
     "helper:headless": "node scripts/run-python.mjs runtime/helper.py --headless",
     "helper:visual": "node scripts/run-python.mjs runtime/helper.py",

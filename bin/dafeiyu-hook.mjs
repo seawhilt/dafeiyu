@@ -2,7 +2,7 @@
 // Claude Code hook entry. It must never slow down or break Claude Code: it
 // forwards a slimmed payload to the pet daemon, starts the daemon when needed,
 // prints nothing and always exits 0.
-import { callDaemon, ensureDaemon } from '../src/daemon-client.js'
+import { callDaemon, ensureDaemon } from '../src/daemon/client.js'
 import { hookSource, sourceArgument } from '../src/providers/registry.js'
 
 const MAX_STDIN_BYTES = 4 * 1024 * 1024

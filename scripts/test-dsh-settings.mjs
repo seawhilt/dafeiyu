@@ -6,8 +6,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { Config } from '../src/plugin.js'
-import { createSettingsScope, plainConfig } from '../src/settings-scope.js'
+import { Config } from '../src/dsh/plugin.js'
+import { createSettingsScope, plainConfig } from '../src/dsh/settings-scope.js'
 
 if (!process.argv[2]) throw new Error('Usage: node scripts/test-dsh-settings.mjs <DSH installation directory>')
 const runtime = resolve(process.argv[2], 'node_modules', '@deepseek-ai')

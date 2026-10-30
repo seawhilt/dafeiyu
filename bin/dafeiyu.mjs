@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 import { appendFileSync, mkdirSync, rmSync } from 'node:fs'
-import { acquireLock, startDaemon } from '../src/daemon.js'
-import { callDaemon, ensureDaemon } from '../src/daemon-client.js'
-import { daemonPaths } from '../src/daemon-store.js'
-import { PROVIDERS } from '../src/provider-hub.js'
+import { acquireLock, startDaemon } from '../src/daemon/daemon.js'
+import { callDaemon, ensureDaemon } from '../src/daemon/client.js'
+import { daemonPaths } from '../src/daemon/store.js'
+import { PROVIDERS } from '../src/hub/provider-hub.js'
 import { HOOK_SOURCE_IDS, hookSource } from '../src/providers/registry.js'
 
 const USAGE = `用法: dafeiyu <命令>
