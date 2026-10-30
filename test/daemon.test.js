@@ -211,3 +211,20 @@ test('the single-instance lock is exclusive and reclaims dead owners', () => {
     rmSync(home, { recursive: true, force: true })
   }
 })
+
+test('right-click dismiss clears a failed Claude turn from the pet', async () => {
+  await withDaemon(async ({ paths, sent, helper }) => {
+    const lastState = () => sent.filter((message) => message.kind === 'state').at(-1)
+    await callDaemon('/claude/hook', {
+      hook_event_name: 'StopFailure',
+      session_id: 's',
+      cwd: '/work/short-manage',
+      error: 'invalid_request',
+      last_assistant_message: 'API Error: 422',
+    }, { paths })
+    assert.equal(lastState().state, 'ERROR')
+    assert.equal(lastState().detail, 'short-manage · API Error: 422')
+    helper().onSettingsChange({ request: 'dismiss-errors' })
+    assert.equal(lastState().state, 'IDLE')
+  })
+})

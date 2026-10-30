@@ -147,6 +147,17 @@ def parse_providers(
     return providers, provider
 
 
+def can_dismiss_errors(provider: str, status_state: str, tasks: list[dict[str, Any]]) -> bool:
+    """Offer "忽略出错提醒" only when an error is on screen that the daemon owns.
+
+    The daemon tracks Claude sessions itself; other providers keep their own
+    state, so the request would do nothing for them.
+    """
+    if provider != "claude":
+        return False
+    return status_state == "ERROR" or any(task.get("state") == "ERROR" for task in tasks)
+
+
 def emit_reply(kind: str, **payload: Any) -> None:
     print(
         json.dumps(
@@ -1475,6 +1486,11 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             reduced_action = menu.addAction("减少动态")
             reduced_action.setCheckable(True)
             reduced_action.setChecked(self.reduced_motion)
+            dismiss_action = (
+                menu.addAction("忽略出错提醒")
+                if can_dismiss_errors(self.provider, self.status_state, self.tasks)
+                else None
+            )
             open_webui_action = menu.addAction(self.open_label) if self.webui_url and self.open_label else None
             settings_action = menu.addAction("设置…") if self.whisper_level else None
             menu.addSeparator()
@@ -1495,6 +1511,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 emit_reply("settings", bubbleScale=self.bubble_scale)
             elif selected in action_items:
                 self._play_action(*action_items[selected])
+            elif dismiss_action is not None and selected == dismiss_action:
+                emit_reply("settings", request="dismiss-errors")
             elif settings_action is not None and selected == settings_action:
                 emit_reply("settings", request="settings")
             elif selected == say_action:

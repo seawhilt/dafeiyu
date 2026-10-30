@@ -416,3 +416,55 @@ test('project name follows a folder rename instead of the stale session header',
   }, 3))
   assert.equal(withExplicit.project, 'explicit-project')
 })
+
+function failSession(reducer, target, seq = 1) {
+  reducer.handle(target, event('turn/start', { turn: 1 }, seq))
+  return reducer.handle(target, event('turn/end', { turn: 1, reason: { kind: 'error' } }, seq + 1))
+}
+
+test('dismissing errors returns failed sessions to idle and keeps other states', () => {
+  const reducer = new CompanionReducer()
+  const failed = { header: { id: 'failed-session' } }
+  const busy = { header: { id: 'busy-session' } }
+  failSession(reducer, failed)
+  reducer.handle(busy, event('turn/start', { turn: 1 }, 5))
+  const messages = reducer.dismissErrors()
+  const state = messages.find((message) => message.kind === CompanionMessageKind.STATE)
+  assert.equal(state.state, CompanionState.THINKING)
+  assert.equal(state.sessionId, 'busy-session')
+  assert.deepEqual(reducer.dismissErrors(), [])
+})
+
+test('sweep clears errors after 15 minutes and drops sessions silent for 2 hours', () => {
+  let now = 0
+  const reducer = new CompanionReducer({ now: () => now })
+  const failed = { header: { id: 'failed-session' } }
+  const stuck = { header: { id: 'stuck-session' } }
+  failSession(reducer, failed)
+  reducer.handle(stuck, event('turn/start', { turn: 1 }, 5))
+
+  now = 14 * 60_000
+  assert.deepEqual(reducer.sweep(), [])
+
+  now = 16 * 60_000
+  const cleared = reducer.sweep().find((message) => message.kind === CompanionMessageKind.STATE)
+  assert.equal(cleared.state, CompanionState.THINKING)
+  assert.equal(reducer.sessions.get('failed-session').state, CompanionState.IDLE)
+
+  now = 2 * 60 * 60_000 + 1
+  reducer.sweep()
+  assert.equal(reducer.sessions.size, 0)
+})
+
+test('a session that keeps sending events is never swept', () => {
+  let now = 0
+  const reducer = new CompanionReducer({ now: () => now })
+  const live = { header: { id: 'live-session' } }
+  reducer.handle(live, event('turn/start', { turn: 1 }, 1))
+  for (let minute = 30; minute <= 180; minute += 30) {
+    now = minute * 60_000
+    reducer.handle(live, event('tool/call', { callId: `c${minute}`, name: 'shell_command' }, minute))
+    reducer.sweep()
+  }
+  assert.equal(reducer.sessions.get('live-session').state, CompanionState.WORKING)
+})

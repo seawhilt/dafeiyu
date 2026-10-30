@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   activityCopy,
   activityStage,
+  apiErrorCopy,
   statusCopy,
   statusCopyLibrary,
   taskCopy,
@@ -25,4 +26,15 @@ test('task copy adds restrained conversational particles', () => {
   assert.equal(taskCopy('修改登录模块'), '正在修改登录模块呢')
   assert.equal(taskCopy('正在运行测试'), '正在运行测试呢')
   assert.equal(taskCopy('Ship the release'), '正在处理「Ship the release」呢')
+})
+
+test('API error copy names the kind of failure instead of a generic problem', () => {
+  assert.match(apiErrorCopy('rate_limit', 0), /限流|频繁/u)
+  assert.match(apiErrorCopy('overloaded', 0), /忙|服务/u)
+  assert.match(apiErrorCopy('authentication_failed', 0), /登录|凭证/u)
+  assert.match(apiErrorCopy('billing_error', 0), /账户|额度/u)
+  assert.match(apiErrorCopy('invalid_request', 0), /配置|请求/u)
+  assert.equal(apiErrorCopy('max_output_tokens', 0), statusCopy('limit', 0))
+  assert.equal(apiErrorCopy('something_new', 0), statusCopy('error', 0))
+  assert.equal(apiErrorCopy(undefined, 0), statusCopy('error', 0))
 })

@@ -106,3 +106,33 @@ test('slimming keeps only routing fields and short todo text', () => {
   assert.equal(bash.tool_input, undefined)
   assert.equal(slimClaudeHookPayload('nope'), undefined)
 })
+
+test('StopFailure carries the error type and the API error text, never Stop output', () => {
+  const failure = slimClaudeHookPayload({
+    ...base,
+    hook_event_name: 'StopFailure',
+    error: 'invalid_request',
+    error_details: '422',
+    last_assistant_message: 'API Error: 422 unknown variant',
+  })
+  assert.equal(failure.error, 'invalid_request')
+  assert.equal(failure.last_assistant_message, 'API Error: 422 unknown variant')
+  // For Stop this field is Claude's own reply, which must not leave the process.
+  const stop = slimClaudeHookPayload({ ...base, hook_event_name: 'Stop', last_assistant_message: 'secret reply' })
+  assert.equal(stop.last_assistant_message, undefined)
+  const [, end] = translateClaudeHook(failure)
+  assert.deepEqual(end.event.data.reason, { kind: 'error', error: 'invalid_request', text: 'API Error: 422 unknown variant' })
+})
+
+test('a failed turn names the project and the error in the bubble', () => {
+  const reducer = new CompanionReducer()
+  run(reducer, [{ hook_event_name: 'UserPromptSubmit' }])
+  const failed = lastState(run(reducer, [{
+    hook_event_name: 'StopFailure',
+    error: 'rate_limit',
+    last_assistant_message: 'API Error: Rate limit reached',
+  }]))
+  assert.equal(failed.state, 'ERROR')
+  assert.match(failed.message, /限流|频繁/u)
+  assert.equal(failed.detail, 'my-app · API Error: Rate limit reached')
+})

@@ -73,7 +73,9 @@ export function translateClaudeHook(payload, seq = Date.now()) {
       return [decided(), event('turn/end', { reason: { kind: 'completed' } })]
 
     case 'StopFailure':
-      return [decided(), event('turn/end', { reason: { kind: 'error' } })]
+      return [decided(), event('turn/end', {
+        reason: { kind: 'error', error: payload.error, text: payload.last_assistant_message },
+      })]
 
     case 'SessionEnd':
       return [{ type: 'dispose', session }]
@@ -96,6 +98,12 @@ export function slimClaudeHookPayload(payload) {
     tool_name: pick('tool_name'),
     tool_use_id: pick('tool_use_id'),
     notification_type: pick('notification_type'),
+  }
+  // Only StopFailure's last_assistant_message is the API error string; for
+  // Stop it is Claude's reply and must stay inside Claude Code.
+  if (payload.hook_event_name === 'StopFailure') {
+    slim.error = pick('error')
+    slim.last_assistant_message = pick('last_assistant_message')
   }
   const todos = payload.tool_name === 'TodoWrite' ? payload.tool_input?.todos : undefined
   if (Array.isArray(todos)) {

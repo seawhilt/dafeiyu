@@ -77,6 +77,41 @@ const COPY = Object.freeze({
     '内容有点多，到上限啦',
     '这次输出已经到上限咯',
   ],
+  rateLimit: [
+    '请求太频繁，被限流啦',
+    '被限流了，稍等一会儿再试吧',
+  ],
+  serverBusy: [
+    '服务那边有点忙，稍后重试一下吧',
+    '服务暂时出错了，可以再试一次哦',
+  ],
+  credential: [
+    '登录凭证好像失效了，需要处理一下',
+    '登录状态出了问题，回去看看吧',
+  ],
+  billing: [
+    '账户或额度出了问题呢',
+    '账户这边需要处理一下额度哦',
+  ],
+  badRequest: [
+    '请求配置有问题，回去看看吧',
+    '模型或请求配置不对，需要处理一下',
+  ],
+})
+
+// Claude Code StopFailure `error` values, grouped by what the user has to do.
+const API_ERROR_COPY = Object.freeze({
+  rate_limit: 'rateLimit',
+  overloaded: 'serverBusy',
+  server_error: 'serverBusy',
+  authentication_failed: 'credential',
+  oauth_org_not_allowed: 'credential',
+  cloud_credential_error: 'credential',
+  billing_error: 'billing',
+  account_on_hold: 'billing',
+  invalid_request: 'badRequest',
+  model_not_found: 'badRequest',
+  max_output_tokens: 'limit',
 })
 
 function seedNumber(seed) {
@@ -88,6 +123,11 @@ function seedNumber(seed) {
 export function statusCopy(group, seed = 0) {
   const variants = COPY[group] ?? COPY.working
   return variants[seedNumber(seed) % variants.length]
+}
+
+/** @param {string | undefined} errorType Claude Code StopFailure `error` value. */
+export function apiErrorCopy(errorType, seed = 0) {
+  return statusCopy(API_ERROR_COPY[errorType] ?? 'error', seed)
 }
 
 export function activityCopy(activity, seed = 0) {

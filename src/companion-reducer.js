@@ -6,9 +6,16 @@ import {
 import {
   activityCopy,
   activityStage,
+  apiErrorCopy,
   statusCopy,
   taskCopy,
 } from './status-copy.js'
+
+// A failed turn stays on screen until the user reacts, but a terminal closed
+// without SessionEnd would otherwise pin it there until the daemon restarts.
+export const ERROR_TTL_MS = 15 * 60_000
+export const SILENT_SESSION_MS = 2 * 60 * 60_000
+const ERROR_TEXT_LIMIT = 120
 
 const statePriority = Object.freeze({
   [CompanionState.WAITING]: 60,
@@ -150,9 +157,18 @@ function reasoningEffortOf(event) {
   return value.trim().replace(/\s+/gu, ' ').slice(0, 24) || undefined
 }
 
+function errorTextOf(reason) {
+  if (typeof reason?.text !== 'string') return undefined
+  return reason.text.replace(/\s+/gu, ' ').trim().slice(0, ERROR_TEXT_LIMIT) || undefined
+}
+
 // The bubble's second line: progress and task, not the project folder name;
-// the multi-task list still names each project.
+// the multi-task list still names each project. A failed turn is the
+// exception: the user has to find that session, so name it and the error.
 function detailFor(record, stage = record.payload.stage) {
+  if (record.state === CompanionState.ERROR && record.payload.phase === 'turn-end') {
+    return [record.project, record.payload.errorText ?? stage].filter(Boolean).join(' · ')
+  }
   const parts = []
   if (record.reasoningEffort) parts.push(`推理 ${record.reasoningEffort}`)
   if (record.progress?.total) parts.push(`已完成 ${record.progress.completed}/${record.progress.total} 步`)
@@ -162,8 +178,9 @@ function detailFor(record, stage = record.payload.stage) {
 }
 
 export class CompanionReducer {
-  constructor({ includeSubagents = false, maxSessions = 256, hostLabel = 'DSH' } = {}) {
+  constructor({ includeSubagents = false, maxSessions = 256, hostLabel = 'DSH', now = Date.now } = {}) {
     this.includeSubagents = includeSubagents
+    this.now = now
     this.hostLabel = hostLabel
     this.sessions = new Map()
     this.maxSessions = maxSessions
@@ -192,6 +209,7 @@ export class CompanionReducer {
     const sessionId = sessionIdOf(session)
     const record = this.#record(sessionId)
     record.subagent = subagent
+    record.seenAt = this.now()
     record.lastSeq = Number(event.seq ?? record.lastSeq)
     record.project = projectNameOf(session, event) ?? record.project
 
@@ -293,6 +311,35 @@ export class CompanionReducer {
     const existed = this.sessions.delete(sessionId)
     if (!existed) return []
     return this.#render()
+  }
+
+  /** The user acknowledged every failed turn: show what else is going on. */
+  dismissErrors() {
+    const failed = [...this.sessions.values()].filter((record) => record.state === CompanionState.ERROR)
+    if (failed.length === 0) return []
+    for (const record of failed) this.#idle(record, 'dismissed')
+    return this.#render()
+  }
+
+  /** Called periodically: expire stale errors and sessions that went silent. */
+  sweep() {
+    const now = this.now()
+    let changed = false
+    for (const record of [...this.sessions.values()]) {
+      const silentFor = now - (record.seenAt ?? now)
+      if (silentFor > SILENT_SESSION_MS) {
+        this.sessions.delete(record.id)
+        changed = true
+      } else if (record.state === CompanionState.ERROR && silentFor > ERROR_TTL_MS) {
+        this.#idle(record, 'expired')
+        changed = true
+      }
+    }
+    return changed ? this.#render() : []
+  }
+
+  #idle(record, phase) {
+    this.#update(record, CompanionState.IDLE, { phase, message: `${this.hostLabel} 空闲中` })
   }
 
   #toolResult(record, event) {
@@ -406,13 +453,16 @@ export class CompanionReducer {
     }
 
     if (kind !== 'completed') {
+      const reason = event.data?.reason
       this.#update(record, CompanionState.ERROR, {
         phase: 'turn-end',
         stage: '需要处理',
         reasonKind: kind,
+        errorType: typeof reason?.error === 'string' ? reason.error : undefined,
+        errorText: errorTextOf(reason),
         message: kind === 'max-tokens'
           ? statusCopy('limit', event.seq)
-          : statusCopy('error', event.seq),
+          : apiErrorCopy(reason?.error, event.seq),
       })
       return this.#render()
     }
@@ -573,6 +623,7 @@ export class CompanionReducer {
       record.payload.activity ?? '',
       record.payload.toolName ?? '',
       record.payload.message ?? '',
+      record.payload.errorText ?? '',
       record.project ?? '',
       record.task ?? '',
       record.progress?.completed ?? '',

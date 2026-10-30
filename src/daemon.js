@@ -25,6 +25,7 @@ import {
 
 const MAX_MESSAGES_PER_POST = 64
 const AVAILABILITY_POLL_MS = 10000
+const SESSION_SWEEP_MS = 60000
 const CLOSE_GRACE_MS = 500
 
 function processAlive(pid) {
@@ -170,6 +171,7 @@ export async function startDaemon({
         whisper.setLevel(report.whisperLevel)
       }
       if (report.request === 'whisper') whisper.speak()
+      if (report.request === 'dismiss-errors') sendClaude(claudeReducer.dismissErrors())
       if (report.request === 'settings') openSettings()
       if (typeof report.character === 'string') {
         void setCharacter(report.character).catch((error) => {
@@ -241,6 +243,9 @@ export async function startDaemon({
     preferred: settings.provider,
   })
   const claudeReducer = new CompanionReducer({ includeSubagents: settings.includeSubagents, hostLabel: 'Claude' })
+  const sendClaude = (messages) => {
+    for (const message of messages) hub.receive('claude', message)
+  }
   let seq = 0
 
   const refreshAvailability = () => {
@@ -270,10 +275,9 @@ export async function startDaemon({
       refreshAvailability()
     }
     for (const item of translateClaudeHook(payload, ++seq)) {
-      const messages = item.type === 'dispose'
+      sendClaude(item.type === 'dispose'
         ? claudeReducer.disposeSession(item.session)
-        : claudeReducer.handle(item.session, item.event)
-      for (const message of messages) hub.receive('claude', message)
+        : claudeReducer.handle(item.session, item.event))
     }
   }
 
@@ -397,12 +401,15 @@ export async function startDaemon({
   usagePoller.start()
   const availabilityTimer = setInterval(refreshAvailability, AVAILABILITY_POLL_MS)
   availabilityTimer.unref?.()
+  const sweepTimer = setInterval(() => sendClaude(claudeReducer.sweep()), SESSION_SWEEP_MS)
+  sweepTimer.unref?.()
   logger.info?.(`dafeiyu daemon listening on 127.0.0.1:${port}`)
 
   async function close(reason = 'shutdown') {
     if (closed) return
     closed = true
     clearInterval(availabilityTimer)
+    clearInterval(sweepTimer)
     usagePoller.stop()
     whisper.stop()
     director.stop()
