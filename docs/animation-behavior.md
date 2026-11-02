@@ -2,7 +2,7 @@
 
 从 0.2.3 起，动作由守护进程里的 pet director 统一决定：它读取 Agent 状态、完成／出错脉冲、
 鼠标互动和桌宠程序回报的“一段播完”，再告诉桌宠程序播哪一段。macOS、Windows / Linux Qt
-和 Python 回退版共用同一套规则（`src/pet-director.js`、`src/animation-model.js`），
+和 Python 回退版共用同一套规则（`src/pet/pet-director.js`、`src/pet/animation-model.js`），
 桌宠程序只负责播放、窗口与鼠标。共享桌宠模式由守护进程决定；独立桌宠模式由 DSH 插件按同一套模型决定。
 
 动作清单来自 `assets/pet-manifest.json`：当前共 108 段、14,726 帧，统一画布 412 × 344
