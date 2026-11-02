@@ -40,8 +40,6 @@ final class PetController: NSObject {
     var webuiURL: String
     var openLabel = ProcessInfo.processInfo.environment["DAFEIYU_OPEN_LABEL"] ?? "打开 DSH"
     var balanceSummary = ""
-    var providers: [(id: String, label: String)] = []
-    var provider = ""
     var whisperLevel = ""
     var characters: [(id: String, name: String)] = []
     var character = ""
@@ -927,20 +925,6 @@ final class PetController: NSObject {
         bubbleItem.submenu = bubbleMenu
         menu.addItem(bubbleItem)
 
-        if providers.count > 1 {
-            let providerMenu = NSMenu(title: "服务商")
-            for entry in providers {
-                let item = NSMenuItem(title: entry.label, action: #selector(changeProvider(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = entry.id
-                item.state = entry.id == provider ? .on : .off
-                providerMenu.addItem(item)
-            }
-            let providerItem = NSMenuItem(title: "服务商", action: nil, keyEquivalent: "")
-            providerItem.submenu = providerMenu
-            menu.addItem(providerItem)
-        }
-
         let actionMenu = NSMenu(title: "动作")
         for group in actionMenuGroups() {
             let target: NSMenu
@@ -999,6 +983,13 @@ final class PetController: NSObject {
         reduced.target = self
         reduced.state = reducedMotion ? .on : .off
         menu.addItem(reduced)
+
+        // Only the shared daemon answers this request.
+        if !whisperLevel.isEmpty && TaskCard.canDismissErrors(statusState: statusState, tasks: tasks) {
+            let dismiss = NSMenuItem(title: "忽略出错提醒", action: #selector(dismissErrors(_:)), keyEquivalent: "")
+            dismiss.target = self
+            menu.addItem(dismiss)
+        }
 
         if !webuiURL.isEmpty && !openLabel.isEmpty {
             let openWeb = NSMenuItem(title: openLabel, action: #selector(openWebUI(_:)), keyEquivalent: "")
@@ -1062,10 +1053,8 @@ final class PetController: NSObject {
         contentView?.needsDisplay = true
     }
 
-    @objc private func changeProvider(_ sender: NSMenuItem) {
-        guard let id = sender.representedObject as? String else { return }
-        provider = id
-        reportSettings(["provider": id])
+    @objc private func dismissErrors(_ sender: Any?) {
+        reportSettings(["request": "dismiss-errors"])
     }
 
     @objc private func openWebUI(_ sender: Any?) {
@@ -1186,13 +1175,6 @@ final class PetController: NSObject {
     private func applyConfig(_ message: [String: Any]) {
         if let url = message["openUrl"] as? String { webuiURL = url }
         if let label = message["openLabel"] as? String { openLabel = label }
-        if let list = message["providers"] as? [[String: Any]] {
-            providers = list.compactMap { item in
-                guard let id = item["id"] as? String else { return nil }
-                return (id: id, label: (item["label"] as? String) ?? id)
-            }
-        }
-        if message.keys.contains("provider") { provider = (message["provider"] as? String) ?? "" }
         if let level = message["whisperLevel"] as? String, ["off", "low", "high"].contains(level) { whisperLevel = level }
         if let list = message["characters"] as? [[String: Any]] {
             characters = list.compactMap { item in
@@ -1468,11 +1450,7 @@ final class PetController: NSObject {
             let rowY = rect.minY + (38 + CGFloat(index) * 22) * s
             let state = Self.stringValue(task["state"]) ?? "IDLE"
             let stateLabel = Self.labels[state] ?? state
-            let label = Self.stringValue(task["project"])
-                ?? Self.stringValue(task["task"])
-                ?? Self.stringValue(task["message"])
-                ?? stateLabel
-            let line = "\(stateLabel) · \(label)"
+            let line = TaskCard.line(stateLabel: stateLabel, task: task)
             let (_, fgHex) = Self.statusColors[state] ?? ("#ECEEF1", "#747A84")
             Self.hex(fgHex).setFill()
             NSBezierPath(ovalIn: NSRect(x: textX, y: rowY + 4 * s, width: 8 * s, height: 8 * s)).fill()

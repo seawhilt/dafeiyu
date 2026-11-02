@@ -21,6 +21,7 @@ SOURCES=(
   "$DIR/Sources/ClipPlayer.swift" \
   "$DIR/Sources/LayoutStore.swift" \
   "$DIR/Sources/PetGeometry.swift" \
+  "$DIR/Sources/TaskCard.swift" \
   "$DIR/Sources/Permissions.swift" \
   "$DIR/Sources/PetController.swift" \
   "$DIR/Sources/PetView.swift" \
