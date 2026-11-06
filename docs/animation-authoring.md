@@ -11,14 +11,14 @@ supports reusable animation across skins and can export transparent PNG
 sequences. [Rive](https://rive.app/docs) is another option if the app later needs
 live state-machine animation, but that would require embedding its runtime.
 
-The current `llm-pet` files are sprite atlases, not layered art. A rig needs
+Codex-format packs are sprite atlases, not layered art. A rig needs
 separate attachments for the head, hair, torso, arms, skirt, tail, wings, and
 accessories. Reconstruct or separate those layers before rigging. Use separate
 rig families for humanoid characters and whale-like characters.
 
 ## Pilot action list
 
-Start with `chatgpt-chibi` and five clips: `idle`, `thinking`, `wave`, `jump`,
+Start with one installed pack (for example `~/.codex/pets/<id>`) and five clips: `idle`, `thinking`, `wave`, `jump`,
 and `run_right_once`. Export every clip with transparent background and the same
 canvas size as the character's source pack (192 x 208 for Codex sprite sheets).
 In Spine's PNG export, enable maximum bounds so every frame keeps the same
@@ -41,7 +41,7 @@ Import the exported frames into the character pack:
 
 ```bash
 node scripts/import-animation-frames.mjs \
-  assets/llm-pet/pets/chatgpt-chibi \
+  ~/.codex/pets/<id> \
   /path/to/spine-export \
   42
 ```

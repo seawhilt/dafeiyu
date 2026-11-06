@@ -7,7 +7,7 @@ import { createDaemonServer, HttpError } from './server.js'
 import { assertCompanionMessage, CompanionMessageKind, createMessage } from '../core/protocol.js'
 import { isProviderId, normalizeOrder, PROVIDER_IDS, PROVIDERS, ProviderHub } from '../hub/provider-hub.js'
 import { applyBubbleText, sanitizeBubbleText } from '../core/bubble-text.js'
-import { codexPetsRoot, isSkin } from '../pet/characters.js'
+import { codexPetsRoot } from '../pet/characters.js'
 import { createPetDirector } from '../pet/pet-director.js'
 import { createPetWindow } from '../pet/pet-window.js'
 import { characterPreview, createSettingsRoutes, openInBrowser, settingsPage } from './settings-routes.js'
@@ -188,7 +188,7 @@ export async function startDaemon({
     onClosed(report) {
       // Character changes shut down the old helper with reason="host" before
       // starting its replacement. Only an explicit user close should stop the
-      // shared daemon; treating host shutdowns as user intent made skin changes
+      // shared daemon; treating host shutdowns as user intent made character changes
       // close the newly started helper a few hundred milliseconds later.
       if (report?.reason !== 'user') return
       // "本次关闭" ends this run; the next hook or DSH start brings it back.
@@ -428,7 +428,7 @@ export async function startDaemon({
         if (!helper.hasCharacter(id)) throw new HttpError(404, 'unknown character')
         const bytes = characterPreview(id, petsRoot)
         if (!bytes) throw new HttpError(404, 'no preview')
-        return { contentType: isSkin(id) ? 'image/png' : 'image/webp', bytes }
+        return { contentType: 'image/webp', bytes }
       },
     },
     logger,
