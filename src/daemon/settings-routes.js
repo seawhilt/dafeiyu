@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bubbleTextView } from '../core/bubble-text.js'
-import { CODEX_PREVIEW, codexSheet, installPetdexPet, isSkin, listCharacters, skinPreview } from '../pet/characters.js'
+import { CODEX_PREVIEW, codexSheet, installPetdexPet, listCharacters } from '../pet/characters.js'
 import { sanitizeSettings } from './store.js'
 import { isProviderId } from '../hub/provider-hub.js'
 import { hookSource } from '../providers/registry.js'
@@ -45,14 +45,13 @@ export function openInBrowser(url, { platform = process.platform, run = spawn } 
 }
 
 let whalePreview
-/** Preview bytes for a character: a codex sprite sheet, a bundled skin, or the
- * whale's first idle frame. */
+/** Preview bytes for a character: a codex sprite sheet or the whale's first
+ * idle frame. */
 export function characterPreview(id, petsRoot) {
   if (id === 'whale') {
     whalePreview ??= readFileSync(resolve(packageRoot, 'assets', 'pet', 'idle', 'idle_001.webp'))
     return whalePreview
   }
-  if (isSkin(id)) return skinPreview(id)
   return codexSheet(id, petsRoot)
 }
 

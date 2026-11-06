@@ -1,7 +1,6 @@
 import { copyFileSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
 // Characters the pet can wear. The built-in whale-tail maid ships with the
 // package; codex-pets packs (https://codex-pets.net, installed with
@@ -13,48 +12,7 @@ export const BUILTIN_CHARACTER = Object.freeze({ id: 'whale', name: '鲸尾女�
 const PET_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 const SHEET_FILE = 'spritesheet.webp'
 const MAX_SHEET_BYTES = 32 * 1024 * 1024
-const SKIN_ROOT = fileURLToPath(new URL('../../assets/skins/', import.meta.url))
-const BUNDLED_PETS_ROOT = fileURLToPath(new URL('../../assets/llm-pet/pets/', import.meta.url))
-const XIAOLONGNV_PET_ID = 'chatgpt-chibi'
-const SKINS = Object.freeze([
-  ['basin', '饭盆头'],
-  ['beret', '贝雷帽'],
-  ['claude', 'Claude'],
-  ['maid', '女仆装'],
-  ['winter_blue', '冬日蓝'],
-  ['winter_white', '冬日白'],
-])
-const SKIN_FRAME = Object.freeze({ width: 450, height: 600 })
-// Calibrated to the built-in whale's ~268 px visible idle height (alpha >= 16).
-// Each value is target visible height / this skin's tallest visible frame, so
-// transparent padding in the source PNGs does not make a skin look oversized.
-const SKIN_PIXEL_SCALES = Object.freeze({
-  basin: 0.550,
-  beret: 0.541,
-  claude: 0.487,
-  maid: 0.509,
-  winter_blue: 0.527,
-  winter_white: 0.486,
-})
-const LOOPING_SKIN_CLIPS = new Set(['idle', 'thinking', 'working', 'review', 'running_right', 'attention', 'tail', 'dragging'])
-const SKIN_EMOTIONS = Object.freeze({
-  idle: 'pet_stand.png',
-  thinking: 'pet_face_confused.png',
-  working: 'pet_face_happy.png',
-  review: 'pet_face_confused.png',
-  running_right: 'pet_stand.png',
-  attention: 'pet_face_surprised.png',
-  success: 'pet_face_happy.png',
-  error: 'pet_face_sad.png',
-  wave: 'pet_face_shy.png',
-  jump: 'pet_face_surprised.png',
-  head_pat: 'pet_face_shy.png',
-  poke: 'pet_face_angry.png',
-  tail: 'pet_stand.png',
-  dragging: 'pet_stand.png',
-  dragging_release: 'pet_face_surprised.png',
-})
-
+const LOOPING_CLIPS = new Set(['idle', 'thinking', 'working', 'review', 'running_right', 'attention', 'tail', 'dragging'])
 // Codex V1 atlas: 8 columns of 192x208 cells, one state per row.
 const CELL = Object.freeze({ width: 192, height: 208 })
 const ROWS = Object.freeze({
@@ -106,72 +64,8 @@ export function listCodexPets(root = codexPetsRoot()) {
   return listPetsAt(root)
 }
 
-export function listCharacters(root = codexPetsRoot(), { includeSkins = root === codexPetsRoot() } = {}) {
-  const skins = includeSkins ? SKINS.filter(([id]) => {
-    try { return statSync(skinDirectory(id)).isDirectory() } catch { return false }
-  }).map(([id, name]) => ({ id: `skin:${id}`, name, source: 'skin' })) : []
-  if (!includeSkins) return [BUILTIN_CHARACTER, ...skins, ...listCodexPets(root)]
-  const installedPets = listCodexPets(root)
-    .filter((pet) => pet.id !== `codex:${XIAOLONGNV_PET_ID}`)
-  const installedIds = new Set(installedPets.map((pet) => pet.id))
-  const bundledPets = listPetsAt(BUNDLED_PETS_ROOT)
-    .filter((pet) => pet.id !== `codex:${XIAOLONGNV_PET_ID}` && !installedIds.has(pet.id))
-  return [
-    BUILTIN_CHARACTER,
-    ...skins,
-    { id: 'skin:xiaolongnv', name: '小龙女（ChatGPT Q版）', source: 'llm-pet' },
-    ...bundledPets,
-    ...installedPets,
-  ]
-}
-
-function skinDirectory(id) {
-  return join(SKIN_ROOT, id)
-}
-
-/** Directory for a bundled `skin:<id>` character. */
-export function skinDir(characterId) {
-  const match = /^skin:([a-z0-9_]+)$/u.exec(characterId ?? '')
-  return match && SKINS.some(([id]) => id === match[1]) ? skinDirectory(match[1]) : undefined
-}
-
-export function isSkin(characterId) {
-  return skinDir(characterId) !== undefined
-}
-
-function skinManifest(id) {
-  const clips = Object.fromEntries(Object.entries(SKIN_EMOTIONS).map(([clip, file]) => [clip, {
-    frames: [file], frameMs: 1000, loop: LOOPING_SKIN_CLIPS.has(clip),
-  }]))
-  const sequenceDir = join(skinDirectory(id), 'seq')
-  try {
-    const sequence = readdirSync(sequenceDir).filter((file) => /^seq_\d+\.webp$/u.test(file)).sort()
-    if (sequence.length > 0) {
-      clips.idle = { frames: sequence.map((file) => `seq/${file}`), frameMs: 100, loop: true }
-    }
-  } catch {}
-  const label = SKINS.find(([skinId]) => skinId === id)?.[1] ?? id
-  return withAnimationOverrides({
-    formatVersion: 1,
-    characterId: `skin:${id}`,
-    baseSize: SKIN_FRAME.width,
-    maxFrameWidth: SKIN_FRAME.width,
-    maxFrameHeight: SKIN_FRAME.height,
-    maxClipWidth: SKIN_FRAME.width,
-    pixelScale: SKIN_PIXEL_SCALES[id] ?? 0.5,
-    bubbleHeadroom: 0,
-    clips,
-    stateMap: {
-      IDLE: 'idle', THINKING: 'thinking', WORKING: 'working', WAITING: 'attention',
-      SUCCESS: 'success', ERROR: 'error', DISCONNECTED: 'idle',
-    },
-    workingActivityMap: { searching: 'review', commanding: 'running_right', editing: 'working', testing: 'review', 'using-tool': 'working' },
-    loopVariants: { thinking: ['thinking', 'review'], working: ['working', 'review', 'running_right'] },
-    idleMicroClips: ['wave', 'jump'],
-    idleMicroIntervalsMs: { quiet: [20000, 40000], normal: [8000, 15000], lively: [3000, 6000] },
-    interactionCooldownMs: 1200,
-    actionMenu: [{ label: '动作', items: [['害羞', 'wave', `${label}～`], ['惊喜', 'jump', '哇！']] }],
-  }, skinDirectory(id))
+export function listCharacters(root = codexPetsRoot()) {
+  return [BUILTIN_CHARACTER, ...listCodexPets(root)]
 }
 
 const ANIMATION_FRAME_PATH = /^animations\/[a-z0-9_-]+\/[a-zA-Z0-9_.-]+\.(?:png|webp)$/u
@@ -185,7 +79,7 @@ function animationOverrides(directory) {
       const frames = clip.frames.filter((file) => typeof file === 'string' && ANIMATION_FRAME_PATH.test(file))
       if (frames.length === 0 || frames.length !== clip.frames.length || frames.length > 2000) return []
       const frameMs = Number.isFinite(clip.frameMs) ? Math.max(20, Math.min(1000, clip.frameMs)) : 100
-      return [[name, { frames, frameMs, loop: typeof clip.loop === 'boolean' ? clip.loop : LOOPING_SKIN_CLIPS.has(name) }]]
+      return [[name, { frames, frameMs, loop: typeof clip.loop === 'boolean' ? clip.loop : LOOPING_CLIPS.has(name) }]]
     }))
   } catch {
     return {}
@@ -211,20 +105,10 @@ function copyAnimationFrames(from, to) {
   } catch {}
 }
 
-/** Resolve a bundled or installed pack directory for a model pet. */
+/** The installed pack directory for a codex pet. */
 export function codexPetDir(characterId, root = codexPetsRoot()) {
-  const match = /^codex:([a-z0-9]+(?:-[a-z0-9]+)*)$/u.exec(characterId ?? '')
-  const slug = characterId === 'skin:xiaolongnv' ? XIAOLONGNV_PET_ID : match?.[1]
-  if (!slug) return undefined
-  const installed = join(root, slug)
-  try {
-    if (statSync(installed).isDirectory()) return installed
-  } catch {}
-  const bundled = join(BUNDLED_PETS_ROOT, slug)
-  try {
-    if (statSync(bundled).isDirectory()) return bundled
-  } catch {}
-  return match ? installed : undefined
+  const slug = /^codex:([a-z0-9]+(?:-[a-z0-9]+)*)$/u.exec(characterId ?? '')?.[1]
+  return slug ? join(root, slug) : undefined
 }
 
 function row(name, loop, frameName = name) {
@@ -301,28 +185,10 @@ export function codexManifest(displayName, directory) {
  * home and return its path; the built-in character needs none.
  */
 export function prepareCharacterAssets(characterId, { home, root = codexPetsRoot() }) {
-  const bundledSkinDir = skinDir(characterId)
-  if (bundledSkinDir) {
-    const id = characterId.slice('skin:'.length)
-    const target = join(home, 'characters', `skin-${id}`)
-    const petTarget = join(target, 'pet')
-    mkdirSync(join(petTarget, 'seq'), { recursive: true })
-    for (const file of Object.values(SKIN_EMOTIONS)) copyFileSync(join(bundledSkinDir, file), join(petTarget, file))
-    try {
-      for (const file of readdirSync(join(bundledSkinDir, 'seq'))) {
-        if (/^seq_\d+\.webp$/u.test(file)) copyFileSync(join(bundledSkinDir, 'seq', file), join(petTarget, 'seq', file))
-      }
-    } catch {}
-    copyAnimationFrames(bundledSkinDir, petTarget)
-    writeFileSync(join(target, 'pet-manifest.json'), `${JSON.stringify(skinManifest(id), null, 2)}\n`)
-    return target
-  }
   const dir = codexPetDir(characterId, root)
   if (!dir) return undefined
   const pack = JSON.parse(readFileSync(join(dir, 'pet.json'), 'utf8'))
-  const name = characterId === 'skin:xiaolongnv'
-    ? '小龙女（ChatGPT Q版）'
-    : typeof pack?.displayName === 'string' ? pack.displayName.slice(0, 40) : characterId
+  const name = typeof pack?.displayName === 'string' ? pack.displayName.slice(0, 40) : characterId
   const target = join(home, 'characters', characterId.replace(':', '-'))
   mkdirSync(join(target, 'pet'), { recursive: true })
   copyFileSync(join(dir, SHEET_FILE), join(target, 'pet', SHEET_FILE))
@@ -352,13 +218,6 @@ export function codexSheet(characterId, root = codexPetsRoot()) {
   const bytes = readFileSync(file)
   sheetCache.set(file, { mtime, bytes })
   return bytes
-}
-
-/** Preview image for a bundled skin. */
-export function skinPreview(characterId) {
-  const dir = skinDir(characterId)
-  if (!dir) return undefined
-  return readFileSync(join(dir, 'pet_stand.png'))
 }
 
 export const CODEX_PREVIEW = Object.freeze({ cell: CELL, columns: FRAMES.idle, row: ROWS.idle, frameMs: FRAME_MS })

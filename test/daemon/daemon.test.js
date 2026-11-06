@@ -235,3 +235,16 @@ test('hook events arrive per source and unknown sources are rejected', async () 
     )
   })
 })
+
+test('a saved outfit that is no longer bundled falls back to the whale', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dafeiyu-old-skin-'))
+  try {
+    const paths = daemonPaths(dir)
+    writeFileSync(paths.config, JSON.stringify({ character: 'skin:maid' }))
+    assert.equal(loadSettings(paths).character, 'whale')
+    writeFileSync(paths.config, JSON.stringify({ character: 'codex:bulby' }))
+    assert.equal(loadSettings(paths).character, 'codex:bulby')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

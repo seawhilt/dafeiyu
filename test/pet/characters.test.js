@@ -30,6 +30,15 @@ test('lists installed codex pets after the built-in whale', () => {
   }
 })
 
+test('the whale is the only bundled character', () => {
+  const empty = mkdtempSync(join(tmpdir(), 'dafeiyu-no-pets-'))
+  try {
+    assert.deepEqual(listCharacters(empty).map((item) => item.id), ['whale'])
+  } finally {
+    rmSync(empty, { recursive: true, force: true })
+  }
+})
+
 test('only well-formed codex ids map to a pack directory', () => {
   assert.equal(codexPetDir('codex:mini-sama', '/p'), join('/p', 'mini-sama'))
   assert.equal(codexPetDir('codex:../etc', '/p'), undefined)

@@ -34,8 +34,6 @@
     "scripts/generate_notification_sounds.py",
     "scripts/test-packaged-helper.mjs",
     "assets/pet/",
-    "assets/skins/",
-    "assets/llm-pet/",
     "assets/dsh-pet-LICENSE.txt",
     "assets/pet-manifest.json",
     "assets/sounds/",

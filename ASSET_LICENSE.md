@@ -32,33 +32,6 @@ They remain subject to the upstream MIT license, bundled verbatim as
 given; the "dsh-pet" name and its project identity belong to their respective
 owners.
 
-## User-provided skins
-
-The six alternate outfits under `assets/skins/` were supplied in the project
-workspace and adapted for the desktop pet. Their image license is separate from
-the MIT-licensed source code: the supplied v0.9.5 release notes state that the
-character art is not covered by MIT and point to the source project's
-[license](https://github.com/LIN428924379/baifanyu/blob/main/LICENSE). Keep that
-license and any applicable attribution with these assets when redistributing.
-
-The supplied Winter White sequence is included as its idle animation; the other
-skins use their supplied expression images to match pet states.
-
-## llm-pet character art (non-commercial use only)
-
-The 22 animated character packs under `assets/llm-pet/pets/` come from
-[`savanna0425/llm-pet`](https://github.com/savanna0425/llm-pet). The pack's
-`NOTICE.md` is included alongside the files. The artwork is by Bilibili creator
-[ZipZipPipe](https://space.bilibili.com/4168597); the DeepSeek fish character
-also derives from whale character art by 上善. The creators require attribution
-and non-commercial use. DeepSeek assets additionally use CC BY-NC-SA 4.0, so
-redistributions of those assets must follow the same license.
-
-The app presents `chatgpt-chibi` as the existing “小龙女” character, as
-requested, and makes the other packs available in the character picker. This
-does not imply an affiliation with the model providers. These artwork terms
-are separate from this repository's MIT-licensed code.
-
 ## Sounds and cursors
 
 The notification sounds under `assets/sounds/` are original procedural audio
