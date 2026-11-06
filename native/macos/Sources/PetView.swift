@@ -15,6 +15,7 @@ final class PetView: NSView {
 
     override func mouseDown(with event: NSEvent) {
         guard let window = window else { return }
+        controller?.catchFling()
         windowOrigin = window.frame.origin
         let mouse = NSEvent.mouseLocation
         grabOffset = NSPoint(x: mouse.x - window.frame.origin.x,

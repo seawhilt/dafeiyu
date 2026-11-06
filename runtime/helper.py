@@ -23,20 +23,24 @@ try:
     from .layout_store import appkit_to_qt_y, default_layout_path, load_layout, pet_position_from_layout, save_layout
     from .asset_paths import bundle_root
     from .pet_geometry import (
-        bubble_top, dock_angle, dock_edge, docked_x, position_window, screen_outer_edges, tilt_allowance,
-        tilt_for_speed,
+        Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step, fling_velocity,
+        position_window, screen_outer_edges, squash_scale, tilt_allowance, tilt_for_speed,
     )
 except ImportError:
     from animation_model import Player, crossfade_duration
     from layout_store import appkit_to_qt_y, default_layout_path, load_layout, pet_position_from_layout, save_layout
     from asset_paths import bundle_root
     from pet_geometry import (
-        bubble_top, dock_angle, dock_edge, docked_x, position_window, screen_outer_edges, tilt_allowance,
-        tilt_for_speed,
+        Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step, fling_velocity,
+        position_window, screen_outer_edges, squash_scale, tilt_allowance, tilt_for_speed,
     )
 
 
 PROTOCOL_VERSION = 1
+# Drag positions kept for measuring the release speed, and the longest tick a
+# throw may advance at once.
+DRAG_SAMPLE_KEEP_S = 0.2
+FLING_MAX_TICK_MS = 50
 STATES = {"IDLE", "THINKING", "WORKING", "WAITING", "SUCCESS", "ERROR", "DISCONNECTED"}
 # Speech bubble in dsh-pet's style: a white rounded bubble whose tail points
 # at the pet's head. Short lines shrink the bubble to fit.
@@ -479,6 +483,13 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.tilt_target = 0.0
             self.drag_speed = 0.0
             self.last_drag_sample: tuple[int, float] | None = None
+            # Recent (x, y, seconds) drag positions, for the release speed.
+            self.drag_samples: list[tuple[float, float, float]] = []
+            # A thrown pet flies on after release; the drop is reported where
+            # it lands.
+            self.fling: Fling | None = None
+            # When the last click squash started (monotonic seconds).
+            self.squash_started: float | None = None
             self.last_tick_ms = self._now_ms()
             # Whether the last tick painted the bubble; a time-based status or
             # overlay expiry changes the visible card without a message.
@@ -699,6 +710,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 emit_reply("pass", clip=ended)
             self._ease_tilt()
             self._sync_frame_transition(previous_frame, previous_clip)
+            moving = self._advance_fling(elapsed_ms) or self._squash_active()
             overlay_expired = False
             if self.overlay_deadline_ms is not None and now_ms >= self.overlay_deadline_ms:
                 self._clear_overlay()
@@ -721,6 +733,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 or self.model.active_clip_name != previous_clip
                 or self.tilt != previous_tilt
                 or self.fade_from_pixmap is not None
+                or moving
                 or overlay_expired
                 or status_expired
                 or bubble_visible != was_bubble_visible
@@ -737,8 +750,41 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             if abs(self.tilt) < 0.05 and self.tilt_target == 0.0:
                 self.tilt = 0.0
 
+        def _advance_fling(self, elapsed_ms: int) -> bool:
+            """Move a thrown pet one tick; report the drop once it lands."""
+            if self.fling is None:
+                return False
+            screen = self._screen_rect()
+            if screen is None:
+                self._land_fling()
+                return True
+            # A stalled timer must not jump the pet across the screen.
+            seconds = min(elapsed_ms, FLING_MAX_TICK_MS) / 1000
+            self.fling = fling_step(self.fling, seconds, fling_bounds(self._pet_size(), screen))
+            if self.fling is None:
+                self._land_fling()
+            else:
+                self._move_to_pet(round(self.fling.x), round(self.fling.y))
+            return True
+
+        def _land_fling(self) -> None:
+            self.fling = None
+            self._report_drop()
+            self._save_layout()
+
+        def _squash_active(self) -> bool:
+            if self.squash_started is None:
+                return False
+            if squash_scale((time.monotonic() - self.squash_started) * 1000) is None:
+                self.squash_started = None
+            # One more repaint after it ends puts the pet back to full size.
+            return True
+
         def _sample_drag(self) -> None:
             now = time.monotonic()
+            self.drag_samples = [
+                sample for sample in self.drag_samples if now - sample[2] <= DRAG_SAMPLE_KEEP_S
+            ] + [(float(self.pet_x), float(self.pet_y), now)]
             if self.last_drag_sample is not None and now > self.last_drag_sample[1]:
                 speed = (self.pet_x - self.last_drag_sample[0]) / (now - self.last_drag_sample[1])
                 self.drag_speed = self.drag_speed * 0.6 + speed * 0.4
@@ -894,6 +940,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.dragging = True
             self.drag_speed = 0.0
             self.last_drag_sample = None
+            self.drag_samples = []
             emit_reply("input", type="drag-start")
 
         def _finish_drag(self) -> None:
@@ -908,6 +955,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self._apply_window_size()
             if (self.width(), self.height()) != old_size:
                 self._move_to_pet(self.pet_x, self.pet_y)
+
+        def _report_drop(self) -> None:
             # Report a drop by a screen side; the daemon decides whether to dock.
             # Use physical bounds: a drop at the real edge should dock even when
             # a Dock insets the usable area.
@@ -1344,6 +1393,14 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                     painter.translate(center_x, center_y)
                     painter.rotate(angle)
                     painter.translate(-center_x, -center_y)
+                squash = squash_scale((time.monotonic() - self.squash_started) * 1000) if self.squash_started else None
+                if squash is not None:
+                    # Squash about the feet so the pet stays on the ground.
+                    _, pet_y, _, pet_height = self._pet_rect()
+                    feet_x, feet_y = x + pw / 2, pet_y + pet_height
+                    painter.translate(feet_x, feet_y)
+                    painter.scale(*squash)
+                    painter.translate(-feet_x, -feet_y)
                 painter.setOpacity(alpha)
                 painter.drawPixmap(QRectF(x, y, pw, ph), pix, QRectF(0, 0, pix.width(), pix.height()))
                 painter.restore()
@@ -1355,6 +1412,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
 
         def mousePressEvent(self, event: QMouseEvent) -> None:
             if event.button() == Qt.MouseButton.LeftButton:
+                if self.fling is not None:
+                    # Catching a thrown pet lands it where it is.
+                    self._land_fling()
                 self._apply_glove(True)
                 self.drag_origin = event.globalPosition().toPoint()
                 self.pet_origin = QPoint(self.pet_x, self.pet_y)
@@ -1372,9 +1432,14 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
         def mouseReleaseEvent(self, event: QMouseEvent) -> None:
             if event.button() == Qt.MouseButton.LeftButton:
                 if self.dragging:
+                    velocity = None if self.reduced_motion else fling_velocity(self.drag_samples, time.monotonic())
                     self._finish_drag()
                     self._move_to_pet(self.pet_x, self.pet_y)
-                    self._save_layout()
+                    if velocity is None:
+                        self._report_drop()
+                        self._save_layout()
+                    else:
+                        self.fling = Fling(float(self.pet_x), float(self.pet_y), *velocity)
                 else:
                     self._play_click_interaction(event.position().x(), event.position().y())
             self.drag_origin = None
@@ -1399,6 +1464,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 region = "tail"
             else:
                 region = "poke"
+            if not self.reduced_motion:
+                self.squash_started = time.monotonic()
             emit_reply("input", type="click", region=region)
 
         def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:

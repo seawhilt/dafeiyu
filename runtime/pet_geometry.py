@@ -1,9 +1,10 @@
-"""Keep the character anchored while its status card changes size."""
+"""Where the character sits on screen, and how it is thrown and squashed."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
-from math import ceil, cos, radians, sin
+from math import ceil, cos, exp, hypot, pi, radians, sin
+from typing import NamedTuple
 
 Rect = tuple[int, int, int, int]
 
@@ -135,3 +136,79 @@ def tilt_allowance(pet_size: tuple[int, int]) -> int:
     angle = radians(MAX_TILT)
     turned = width * sin(angle) + height * cos(angle)
     return max(0, ceil((turned - height) / 2))
+
+
+# A released drag keeps flying when the pointer was still moving fast.
+FLING_MIN_SPEED = 900.0  # px/s over the last moment of the drag
+FLING_MAX_SPEED = 4000.0
+FLING_STOP_SPEED = 60.0
+FLING_FRICTION = 4.0  # per second; speed falls to ~2% within one second
+FLING_BOUNCE = 0.45  # share of speed kept when hitting a screen edge
+FLING_SAMPLE_WINDOW_S = 0.08
+
+
+class Fling(NamedTuple):
+    x: float
+    y: float
+    vx: float
+    vy: float
+
+
+def fling_velocity(samples: list[tuple[float, float, float]], now: float) -> tuple[float, float] | None:
+    """Release speed from (x, y, seconds) drag samples, or None for a plain drop."""
+    if len(samples) < 2 or now - samples[-1][2] > FLING_SAMPLE_WINDOW_S:
+        return None
+    last = samples[-1]
+    first = next(sample for sample in samples if last[2] - sample[2] <= FLING_SAMPLE_WINDOW_S)
+    elapsed = last[2] - first[2]
+    if elapsed <= 0:
+        return None
+    vx = (last[0] - first[0]) / elapsed
+    vy = (last[1] - first[1]) / elapsed
+    speed = hypot(vx, vy)
+    if speed < FLING_MIN_SPEED:
+        return None
+    cap = min(1.0, FLING_MAX_SPEED / speed)
+    return vx * cap, vy * cap
+
+
+def fling_bounds(pet_size: tuple[int, int], screen: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
+    """Where the pet's top-left may fly so all of it stays on `screen`."""
+    left, top, width, height = screen
+    return left, top, left + max(0, width - pet_size[0]), top + max(0, height - pet_size[1])
+
+
+def _bounce(position: float, speed: float, low: float, high: float) -> tuple[float, float]:
+    if position < low:
+        return low, abs(speed) * FLING_BOUNCE
+    if position > high:
+        return high, -abs(speed) * FLING_BOUNCE
+    return position, speed
+
+
+def fling_step(fling: Fling, seconds: float, bounds: tuple[int, int, int, int]) -> Fling | None:
+    """Advance a throw by `seconds`; None once it has come to rest."""
+    decay = exp(-FLING_FRICTION * seconds)
+    vx, vy = fling.vx * decay, fling.vy * decay
+    left, top, right, bottom = bounds
+    x, vx = _bounce(fling.x + vx * seconds, vx, left, right)
+    y, vy = _bounce(fling.y + vy * seconds, vy, top, bottom)
+    if hypot(vx, vy) < FLING_STOP_SPEED:
+        return None
+    return Fling(x, y, vx, vy)
+
+
+# A click squashes the pet at its feet and lets it spring back.
+SQUASH_MS = 480
+SQUASH_DEPTH = 0.12
+SQUASH_DECAY_MS = 110.0
+SQUASH_PERIOD_MS = 240.0
+SQUASH_WIDEN = 0.5  # widening relative to the drop in height
+
+
+def squash_scale(elapsed_ms: float) -> tuple[float, float] | None:
+    """(width, height) scale `elapsed_ms` after a click, None when done."""
+    if elapsed_ms < 0 or elapsed_ms >= SQUASH_MS:
+        return None
+    amount = SQUASH_DEPTH * exp(-elapsed_ms / SQUASH_DECAY_MS) * cos(2 * pi * elapsed_ms / SQUASH_PERIOD_MS)
+    return 1 + amount * SQUASH_WIDEN, 1 - amount
