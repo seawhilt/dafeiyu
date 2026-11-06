@@ -202,13 +202,16 @@ npm run build:helper
 | 来源 | 用在哪里 | 协议 |
 | --- | --- | --- |
 | [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu) | 项目起点：DSH 插件、原生桌宠程序、状态归约 | MIT |
-| [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) | 鲸尾女仆全部 108 段动画素材，碎碎念、动作菜单的思路 | MIT |
+| [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) | 鲸尾女仆全部 108 段动画素材，碎碎念、动作菜单的思路 | 仓库 MIT；角色形象见下 |
+| 画师 上善无形 | 鲸尾女仆的原创角色「溟月」 | 署名，仅限非商业使用 |
+| [MerZlin/dsh-pet-indesktop](https://github.com/MerZlin/dsh-pet-indesktop) | 去除抠图白边的素材处理方法 | MIT |
 | [Chromium](https://chromium.googlesource.com/chromium/src/+/main/ui/resources/cursors/) | 拖拽时的手套光标 | BSD-3-Clause |
 | [crafter-station/petdex](https://github.com/crafter-station/petdex) | 「从 petdex 安装」形象的宠物图库 | MIT |
 | codex-pets 宠物格式、[eivmosn/dsh-pets](https://github.com/eivmosn/dsh-pets) | 换形象功能参考的格式和思路 | MIT |
 
 - 代码采用 MIT 协议，见 [LICENSE](LICENSE)，其中保留了上游作者的版权声明。
 - 角色动画的许可见 [assets/dsh-pet-LICENSE.txt](assets/dsh-pet-LICENSE.txt)，光标的许可见 [assets/cursors/](assets/cursors/)，完整说明见 [ASSET_LICENSE.md](ASSET_LICENSE.md)。
+- 鲸尾女仆的角色「溟月」由画师上善无形原创，动画素材由社区成员制作。本项目是不商用的个人项目，角色美术**仅限非商业使用**，转载或二次分发请保留这份署名。
 - 代码欢迎拿去玩、改、二次开发，保留上面的版权声明即可；美术素材请按各自许可使用。
 
 本项目是非官方项目，与相关模型提供方无关。

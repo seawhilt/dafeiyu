@@ -14,7 +14,9 @@ therefore measured by piping alphaextract rawvideo through Python and scanning
 rows for non-transparent pixels -- the only dependency is ffmpeg with libvpx.
 
 Frames are re-encoded as transparent WebP (q68) at the clips' native 24 fps,
-which PySide6 decodes natively and keeps the bundled package small.
+which PySide6 decodes natively and keeps the bundled package small. Before
+encoding, each frame's white matte is removed (see ``matte.py``; needs Pillow
+and numpy), which takes the pale fringe off the character's outline.
 
 Usage:
     python scripts/import_dshpet_webm.py \
@@ -36,6 +38,8 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+from matte import MATTE_VERSION, clean_file
 
 CANVAS_WIDTH = 640
 CANVAS_HEIGHT = 360
@@ -441,23 +445,23 @@ def global_crop_box(boxes: list[tuple[int, int, int, int]]) -> tuple[int, int, i
 def encode_webp(ffmpeg: Path, source: Path, crop: tuple[int, int, int, int], target: Path, fps: int = FPS) -> list[Path]:
     """Encode the full source at `fps` as cropped transparent WebP frames.
 
-    Uses ffmpeg's libwebp encoder when it is built in; otherwise decodes to
-    PNG and encodes each frame with cwebp (same libwebp settings).
+    Decodes to PNG, removes each frame's white matte, then encodes it with
+    cwebp.
     """
     target.mkdir(parents=True, exist_ok=True)
     decode = [
         str(ffmpeg), "-v", "error", "-c:v", "libvpx-vp9", "-i", str(source),
         "-vf", f"fps={fps},crop={crop[2]}:{crop[3]}:{crop[0]}:{crop[1]}",
     ]
+    # The matte cleanup works on decoded PNGs, so frames always go through cwebp.
     cwebp = shutil.which("cwebp")
     if cwebp is None:
-        run([*decode, "-c:v", "libwebp", "-lossless", "0", "-q:v", str(QUALITY), "-compression_level", "4",
-             f"{target}/frame_%03d.webp"])
-        return sorted(target.glob("frame_*.webp"))
+        raise RuntimeError("cwebp (libwebp) is required to encode cleaned frames")
     run([*decode, "-pix_fmt", "rgba", f"{target}/frame_%03d.png"])
     pngs = sorted(target.glob("frame_*.png"))
 
     def convert(png: Path) -> None:
+        clean_file(png)
         run([cwebp, "-quiet", "-q", str(QUALITY), "-m", "4", str(png), "-o", str(png.with_suffix(".webp"))])
         png.unlink()
 
@@ -498,7 +502,7 @@ def main() -> int:
     def reusable(key: str, name: str, fps: int) -> bool:
         old = previous.get(key)
         return bool(old) and old["source"]["sha256"] == hashes[name] and old["frameMs"] == round(1000 / fps) \
-            and all((pet_root / frame).exists() for frame in old["frames"])
+            and old["source"].get("matte") == MATTE_VERSION and all((pet_root / frame).exists() for frame in old["frames"])
 
     for key, name, _, _, fps in entries:
         if reusable(key, name, fps) or name in sources:
@@ -544,6 +548,7 @@ def main() -> int:
                 "sha256": hashes[name],
                 "startFrame": start, "endFrame": end,
                 "frameCount": len(frames),
+                "matte": MATTE_VERSION,
             },
         }
         total_kb = sum(p.stat().st_size for p in clip_dir.glob("*.webp")) // 1024
@@ -563,7 +568,7 @@ def main() -> int:
             "repository": "https://github.com/PC2005-cloud/dsh-pet",
             "commit": args.source_commit,
             "directory": "dsh-pet/assets/webm",
-            "fps": FPS, "crop": list(crop), "webpQuality": QUALITY,
+            "fps": FPS, "crop": list(crop), "webpQuality": QUALITY, "matte": MATTE_VERSION,
         },
         "clips": clips,
         "stateMap": STATE_MAP,

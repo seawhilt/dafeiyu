@@ -7,7 +7,13 @@ kept in `LICENSE` as that license requires.
 The source code is MIT-licensed. Every file shipped in the package is covered
 by one of the licenses below.
 
-## Whale-tail maid character assets (MIT)
+## Whale-tail maid character assets (non-commercial, with attribution)
+
+The whale-tail maid is the original character 溟月 (Mingyue) by the artist
+上善无形; the animation set was made by community members. Fan works of this
+character are shared for personal, non-commercial use with attribution, so
+**this project uses the character art for non-commercial purposes only** and
+keeps this credit with it. Do not use the character art commercially.
 
 The runtime frames under `assets/pet/` are converted from the animation set of
 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)
@@ -27,7 +33,7 @@ entrance and exit; the dragging / landing clips split one source into its
 suspended loop and complete return to rest. Stretch and yawn frames come from
 the same upstream set.
 
-They remain subject to the upstream MIT license, bundled verbatim as
+The upstream MIT license for the dsh-pet repository is bundled verbatim as
 `assets/dsh-pet-LICENSE.txt` and shipped in the npm package. No warranty is
 given; the "dsh-pet" name and its project identity belong to their respective
 owners.

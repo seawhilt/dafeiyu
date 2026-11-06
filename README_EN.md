@@ -56,7 +56,7 @@ The pet settings page (right-click → 设置… or `dafeiyu settings`) owns the
 
 ## License
 
-Code is MIT ([LICENSE](LICENSE), keeping the upstream copyright notice). Character frames come from [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) under MIT, and the glove cursors come from Chromium under BSD-3-Clause. See [ASSET_LICENSE.md](ASSET_LICENSE.md). This is an unofficial project, not affiliated with DeepSeek or Anthropic.
+Code is MIT ([LICENSE](LICENSE), keeping the upstream copyright notice). Character frames come from [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (repository under MIT); the whale-tail maid is the original character 溟月 by the artist 上善无形, used with attribution for non-commercial purposes only, and the glove cursors come from Chromium under BSD-3-Clause. See [ASSET_LICENSE.md](ASSET_LICENSE.md). This is an unofficial project, not affiliated with DeepSeek or Anthropic.
 
 ## Credits
 
