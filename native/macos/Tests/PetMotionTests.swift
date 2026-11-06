@@ -95,6 +95,25 @@ final class PetMotionTests: XCTestCase {
         XCTAssertEqual(PetMotion.slingshotStretch(.zero, scale: 1).x, 1)
     }
 
+    func testAWalkGoesWhereThereIsRoomInWholeStrides() {
+        let plan = PetMotion.planWalk(centerX: 100, left: 0, right: 1000, halfWidth: 50, scale: 1, stride: 120, pick: 0, reach: 1)
+        XCTAssertEqual(plan, PetMotion.WalkPlan(direction: 1, loops: 2, distance: 240))
+        XCTAssertNil(PetMotion.planWalk(centerX: 500, left: 400, right: 600, halfWidth: 50, scale: 1, stride: 120, pick: 0, reach: 1))
+        for reach in stride(from: 0.0, through: 1.0, by: 0.1) {
+            let walk = PetMotion.planWalk(centerX: 500, left: 0, right: 1000, halfWidth: 50, scale: 1, stride: 90, pick: 0.9, reach: reach)!
+            XCTAssertEqual(walk.distance, CGFloat(walk.loops) * 90)
+        }
+    }
+
+    func testTheCurveHoldsStillOnStandingFrames() {
+        let curve = [0.0, 0.0, 0.5, 1.0, 1.0]
+        XCTAssertEqual(PetMotion.walkProgress(curve: curve, loops: 1, fraction: 0.2), 0)
+        XCTAssertEqual(PetMotion.walkProgress(curve: curve, loops: 1, fraction: 0.5), 0.5, accuracy: 1e-9)
+        XCTAssertEqual(PetMotion.walkProgress(curve: curve, loops: 2, fraction: 0.75), 0.75, accuracy: 1e-9)
+        XCTAssertEqual(PetMotion.walkProgress(curve: [], loops: 2, fraction: 0.25), 0.25)
+        XCTAssertEqual(PetMotion.walkProgress(curve: curve, loops: 1, fraction: 1.5), 1)
+    }
+
     func testAClickSquashesThenSpringsBack() {
         let start = PetMotion.squash(elapsedMs: 0)
         XCTAssertLessThan(start?.y ?? 1, 1)

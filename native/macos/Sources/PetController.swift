@@ -648,7 +648,7 @@ final class PetController: NSObject {
         }
         easeTilt()
         syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
-        let moving = advanceFling(elapsedMs: elapsed) || squashActive()
+        let moving = advanceFling(elapsedMs: elapsed) || advanceWalk(elapsedMs: elapsed) || squashActive()
         var overlayExpired = false
         if let deadline = overlayDeadlineMs, now >= deadline {
             clearOverlay()
@@ -720,6 +720,8 @@ final class PetController: NSObject {
     /// Switch to the clip the daemon chose.
     private func play(_ message: [String: Any]) {
         guard let clip = Self.stringValue(message["clip"]) else { return }
+        // Any other clip ends a walk where it is.
+        if let current = walk, current.clip != clip { endWalk(report: false) }
         let previousFrame = model.frame
         let previousClip = model.activeClipName
         // Reduced motion never advances frames, so a one-shot success/error
@@ -864,6 +866,7 @@ final class PetController: NSObject {
 
     func beginDrag() {
         guard !dragging else { return }
+        endWalk(report: false)
         dragging = true
         // The drag must keep receiving mouseDragged even when the pointer
         // leaves the character rectangle.
@@ -1224,6 +1227,8 @@ final class PetController: NSObject {
             say(message)
         case "play":
             play(message)
+        case "walk":
+            startWalk(message["clip"] as? String)
         case "dock":
             setDock(message["edge"] as? String, engaged: message["engaged"] as? Bool == true)
         case "balance":
@@ -1356,6 +1361,72 @@ final class PetController: NSObject {
         if let value = message["dropGravity"] as? Bool { dropGravity = value }
         if let value = message["edgeProbe"] as? Bool { edgeProbe = value }
         if let value = message["noMove"] as? Bool { noMove = value }
+    }
+
+    /// A walk across the desktop in progress, and which way the pet faces.
+    private struct Walk {
+        let clip: String
+        let startX: CGFloat
+        let distance: CGFloat
+        let loops: Int
+        let curve: [Double]
+        let durationMs: Double
+        var elapsedMs: Double = 0
+    }
+    private var walk: Walk?
+    private var facingRight = false
+    /// Share of the frame width the whale's body takes up; walks keep the
+    /// body, not the transparent frame, inside the screen.
+    private static let walkBodyShare: CGFloat = 0.52
+
+    /// Walk across the desktop while `clip` loops; say when done.
+    private func startWalk(_ clip: String?) {
+        let moves = manifest["moveClips"] as? [String: Any]
+        guard let clip = clip, let source = moves?[clip] as? [String: Any], let frames = model.clips[clip],
+              !noMove, !reducedMotion, !dragging, fling == nil, dockEdge == nil else {
+            report("input", ["type": "walk-end"])
+            return
+        }
+        let screen = currentScreenFrame()
+        let plan = PetMotion.planWalk(
+            centerX: petX + petWidth / 2, left: screen.minX, right: screen.maxX,
+            halfWidth: petWidth * Self.walkBodyShare / 2, scale: CGFloat(scale),
+            stride: CGFloat(Self.doubleValue(source["stride"]) ?? 120),
+            pick: Double.random(in: 0..<1), reach: Double.random(in: 0...1)
+        )
+        guard let plan = plan else {
+            report("input", ["type": "walk-end"])
+            return
+        }
+        walk = Walk(
+            clip: clip, startX: petX, distance: plan.direction * plan.distance, loops: plan.loops,
+            curve: (source["curve"] as? [Any] ?? []).compactMap { Self.doubleValue($0) },
+            durationMs: Double(plan.loops * frames.frames.count * frames.frameMs) / playbackSpeed
+        )
+        // The walking clips face left; walking right mirrors the pet.
+        facingRight = plan.direction > 0
+        contentView?.needsDisplay = true
+    }
+
+    private func advanceWalk(elapsedMs: Int) -> Bool {
+        guard var current = walk else { return false }
+        current.elapsedMs += Double(elapsedMs)
+        walk = current
+        let fraction = current.elapsedMs / max(1, current.durationMs)
+        let progress = PetMotion.walkProgress(curve: current.curve, loops: current.loops, fraction: fraction)
+        moveToPet(current.startX + current.distance * CGFloat(progress), petY)
+        if fraction >= 1 { endWalk(report: true) }
+        return true
+    }
+
+    /// Stop walking where the pet is; `report` tells the daemon it finished.
+    private func endWalk(report finished: Bool) {
+        guard walk != nil else { return }
+        walk = nil
+        facingRight = false
+        saveLayout()
+        contentView?.needsDisplay = true
+        if finished { report("input", ["type": "walk-end"]) }
     }
 
     /// 弹弓弹射 while aiming: where the pointer was when aiming began (the
@@ -1544,6 +1615,10 @@ final class PetController: NSObject {
                 ctx.translateBy(x: 0, y: drawHeight / 2)
                 ctx.scaleBy(x: squash.x, y: squash.y)
                 ctx.translateBy(x: 0, y: -drawHeight / 2)
+            }
+            if facingRight {
+                // The clips face left; mirror about the pet's centre.
+                ctx.scaleBy(x: -1, y: 1)
             }
             if aiming {
                 // Stretch about the pet's centre along the pull.

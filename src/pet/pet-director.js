@@ -16,6 +16,8 @@ const PAT_LINE = '好啦好啦，知道你喜欢我~'
 const DOCK_EDGES = new Set(['left', 'right'])
 // 边缘探头: a click stands the probing pet upright this long, then it leans back in.
 const ENGAGED_MS = 5000
+// Share of idle actions that become a walk across the desktop.
+const WALK_CHANCE = 0.2
 const LINE_TTL_MS = 1800
 const ACTION_TTL_MS = 2500
 
@@ -30,6 +32,7 @@ const ACTION_TTL_MS = 2500
  */
 export function createPetDirector({ manifest, send, now = Date.now, random = Math.random, timers = { setTimeout, clearTimeout } }) {
   let model = new AnimationModel(manifest)
+  let moveClips = manifest?.moveClips ?? {}
   let sentClip = null
   let reducedMotion = false
   let activityLevel = 'normal'
@@ -44,6 +47,9 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
   let engaged = false
   let engagedTimer
   let edgeProbe = true
+  // The clip the pet is walking with, or null; 不移动 turns walking off.
+  let walking = null
+  let noMove = false
   let stopped = false
 
   const later = (delay, fn) => {
@@ -105,18 +111,44 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     })
   }
 
+  const walkClips = () => Object.keys(moveClips).filter((clip) => model.clips.has(clip))
+
+  // Walk with a looping clip; the helper moves the window and says when it is done.
+  const startWalk = (clip) => {
+    if (!model.playOverlay(clip)) return false
+    walking = clip
+    sentClip = clip
+    send(createMessage(CompanionMessageKind.PLAY, { clip, loop: true }))
+    send(createMessage(CompanionMessageKind.WALK, { clip }))
+    return true
+  }
+
+  // Leave a walk where it is; the next play message stops the helper.
+  const stopWalk = () => {
+    if (!walking) return
+    walking = null
+    model.clearOverlay()
+  }
+
   // Idle actions: a random rest after the current overlay, only while idle.
   function scheduleMicro() {
     timers.clearTimeout(microTimer)
     if (stopped || docked || reducedMotion || model.baseState !== 'IDLE') return
     const [low, high] = model.idleInterval(activityLevel)
     microTimer = later(low + Math.floor(random() * (high - low)) + gapMs, () => {
-      if (model.playIdleMicro(Math.floor(random() * Math.max(1, model.idleMicroClips.length)))) play()
+      const clips = walkClips()
+      const roll = random()
+      // The top of the roll walks, so a deterministic low roll never does.
+      if (!noMove && clips.length > 0 && roll > 1 - WALK_CHANCE && model.overlayClip === null) {
+        if (startWalk(clips[Math.floor(((roll - (1 - WALK_CHANCE)) / WALK_CHANCE) * clips.length) % clips.length])) return
+      }
+      if (model.playIdleMicro(Math.floor(roll * Math.max(1, model.idleMicroClips.length)))) play()
       else scheduleMicro()
     })
   }
 
   const applyState = (message) => {
+    if (message.state !== 'IDLE') stopWalk()
     lastState = message
     model.applyState(message.state, reducedMotion ? undefined : message.activity)
     schedulePulseEnd()
@@ -128,6 +160,8 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     /** A new character: new clips, same agent state. */
     setManifest(next) {
       model = new AnimationModel(next)
+      moveClips = next?.moveClips ?? {}
+      walking = null
       sentClip = null
       // The restarted helper comes back undocked.
       timers.clearTimeout(engagedTimer)
@@ -153,6 +187,7 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
         case CompanionMessageKind.CONFIG:
           if (typeof message.reducedMotion === 'boolean') reducedMotion = message.reducedMotion
           if (['quiet', 'normal', 'lively'].includes(message.activityLevel)) activityLevel = message.activityLevel
+          if (typeof message.noMove === 'boolean') noMove = message.noMove
           if (typeof message.edgeProbe === 'boolean') {
             edgeProbe = message.edgeProbe
             if (!edgeProbe && docked) undock()
@@ -176,6 +211,8 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
 
     /** The helper finished a pass of `clip`. */
     passEnded(clip) {
+      // A walking clip loops until the helper reports the walk is done.
+      if (walking && clip === walking) return
       if (model.passEnded(clip)) {
         play()
         if (model.overlayClip === null) scheduleMicro()
@@ -185,6 +222,14 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     /** Clicks, drags and menu actions reported by the helper. */
     input(report) {
       const at = now()
+      if (report?.type === 'walk-end') {
+        if (!walking) return
+        stopWalk()
+        play()
+        scheduleMicro()
+        return
+      }
+      stopWalk()
       // A drag carries a docked pet off; a click stands it upright for a while.
       if (docked && report?.type === 'drag-start') undock()
       else if (docked && (report?.type === 'click' || report?.type === 'double-click')) engage()

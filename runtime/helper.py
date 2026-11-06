@@ -27,8 +27,8 @@ try:
     from .asset_paths import bundle_root
     from .pet_geometry import (
         THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_extent, docked_x, fling_bounds, fling_step,
-        fling_velocity, position_window, screen_outer_edges, slingshot_launch, slingshot_pull, slingshot_stretch,
-        squash_scale, tilt_allowance, tilt_for_speed,
+        fling_velocity, plan_walk, position_window, screen_outer_edges, slingshot_launch, slingshot_pull, slingshot_stretch,
+        squash_scale, tilt_allowance, tilt_for_speed, walk_progress,
     )
 except ImportError:
     from animation_model import Player, crossfade_duration
@@ -39,8 +39,8 @@ except ImportError:
     from asset_paths import bundle_root
     from pet_geometry import (
         THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_extent, docked_x, fling_bounds, fling_step,
-        fling_velocity, position_window, screen_outer_edges, slingshot_launch, slingshot_pull, slingshot_stretch,
-        squash_scale, tilt_allowance, tilt_for_speed,
+        fling_velocity, plan_walk, position_window, screen_outer_edges, slingshot_launch, slingshot_pull, slingshot_stretch,
+        squash_scale, tilt_allowance, tilt_for_speed, walk_progress,
     )
 
 
@@ -56,6 +56,9 @@ BUBBLE_SIZE_MENU = (("80%", 0.8), ("100%", 1.0), ("150%", 1.5), ("200%", 2.0))
 PLAYBACK_SPEEDS = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)
 # 省电模式: after this long without touching the pet, frames advance at half rate.
 POWER_SAVING_IDLE_S = 30.0
+# Share of the frame width the whale's body takes up; walks keep the body, not
+# the transparent frame, inside the screen.
+WALK_BODY_SHARE = 0.52
 STATES = {"IDLE", "THINKING", "WORKING", "WAITING", "SUCCESS", "ERROR", "DISCONNECTED"}
 # Speech bubble in dsh-pet's style: a white rounded bubble whose tail points
 # at the pet's head. Short lines shrink the bubble to fit.
@@ -529,6 +532,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.slingshot_pull = (0.0, 0.0)
             # The right click that started or ended aiming must not open the menu.
             self.suppress_menu = False
+            # A walk across the desktop in progress, and which way the pet faces.
+            self.walk: dict[str, Any] | None = None
+            self.facing_right = False
             self.last_tick_ms = self._now_ms()
             # Whether the last tick painted the bubble; a time-based status or
             # overlay expiry changes the visible card without a message.
@@ -577,6 +583,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self._say(message)
             elif kind == "play":
                 self._play(message)
+            elif kind == "walk":
+                self._start_walk(message.get("clip"))
             elif kind == "dock":
                 self._set_dock(message.get("edge"), message.get("engaged") is True)
             elif kind == "balance":
@@ -781,7 +789,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 emit_reply("pass", clip=ended)
             self._ease_tilt()
             self._sync_frame_transition(previous_frame, previous_clip)
-            moving = self._advance_fling(elapsed_ms) or self._squash_active()
+            moving = self._advance_fling(elapsed_ms) or self._advance_walk(elapsed_ms) or self._squash_active()
             overlay_expired = False
             if self.overlay_deadline_ms is not None and now_ms >= self.overlay_deadline_ms:
                 self._clear_overlay()
@@ -837,6 +845,64 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             else:
                 self._move_to_pet(round(self.fling.x), round(self.fling.y))
             return True
+
+        def _start_walk(self, clip: Any) -> None:
+            """Walk across the desktop while `clip` loops; say when done."""
+            source = manifest.get("moveClips", {}).get(clip) if isinstance(clip, str) else None
+            screen = self._screen_rect()
+            if (
+                source is None or screen is None or self.no_move or self.reduced_motion or self.dragging
+                or self.fling is not None or self.dock_edge is not None or clip not in self.model.clips
+            ):
+                emit_reply("input", type="walk-end")
+                return
+            pet_width, _ = self._pet_size()
+            left, _top, width, _height = screen
+            plan = plan_walk(
+                self.pet_x + pet_width / 2, left, left + width, pet_width * WALK_BODY_SHARE / 2,
+                self.scale, float(source.get("stride", 120)), random,
+            )
+            if plan is None:
+                emit_reply("input", type="walk-end")
+                return
+            direction, loops, distance = plan
+            frames = len(manifest["clips"][clip]["frames"])
+            frame_ms = float(manifest["clips"][clip].get("frameMs", 83))
+            self.walk = {
+                "clip": clip,
+                "start_x": float(self.pet_x),
+                "distance": direction * distance,
+                "loops": loops,
+                "curve": source.get("curve"),
+                "duration_ms": loops * frames * frame_ms / self.playback_speed,
+                "elapsed_ms": 0.0,
+            }
+            # The walking clips face left; walking right mirrors the pet.
+            self.facing_right = direction > 0
+            self.update()
+
+        def _advance_walk(self, elapsed_ms: int) -> bool:
+            if self.walk is None:
+                return False
+            walk = self.walk
+            walk["elapsed_ms"] += elapsed_ms
+            fraction = walk["elapsed_ms"] / max(1.0, walk["duration_ms"])
+            progress = walk_progress(walk["curve"], walk["loops"], fraction)
+            self._move_to_pet(round(walk["start_x"] + walk["distance"] * progress), self.pet_y)
+            if fraction >= 1:
+                self._end_walk(report=True)
+            return True
+
+        def _end_walk(self, *, report: bool) -> None:
+            """Stop walking where the pet is; `report` tells the daemon it finished."""
+            if self.walk is None:
+                return
+            self.walk = None
+            self.facing_right = False
+            self._save_layout()
+            self.update()
+            if report:
+                emit_reply("input", type="walk-end")
 
         def _land_fling(self) -> None:
             self.fling = None
@@ -964,6 +1030,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             clip = message.get("clip")
             if not isinstance(clip, str):
                 return
+            # Any other clip ends a walk where it is.
+            if self.walk is not None and clip != self.walk["clip"]:
+                self._end_walk(report=False)
             previous_frame, previous_clip = self.model.frame, self.model.active_clip_name
             loop = message.get("loop")
             # Reduced motion never advances frames, so a one-shot success/error
@@ -1016,6 +1085,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
         def _begin_drag(self) -> None:
             if self.dragging:
                 return
+            self._end_walk(report=False)
             self.dragging = True
             self.drag_speed = 0.0
             self.last_drag_sample = None
@@ -1480,6 +1550,12 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                     painter.translate(feet_x, feet_y)
                     painter.scale(*squash)
                     painter.translate(-feet_x, -feet_y)
+                if self.facing_right:
+                    # The clips face left; mirror about the pet's centre.
+                    center_x = x + pw / 2
+                    painter.translate(center_x, 0)
+                    painter.scale(-1, 1)
+                    painter.translate(-center_x, 0)
                 if self.slingshot_anchor is not None:
                     # Stretch about the pet's centre along the pull.
                     _, pet_y, _, pet_height = self._pet_rect()

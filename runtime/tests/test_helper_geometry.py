@@ -88,6 +88,31 @@ class HelperGeometryTests(unittest.TestCase):
                         window.last_tick_ms -= 16
                         window._tick()
                     self.assertEqual((window.pet_x, window.pet_y), (600, 1040 - pet_height))
+                    # Walking: whole strides along the floor line, facing the way
+                    # it goes, ending where the plan says; a new clip stops it.
+                    window._move_to_pet(900, 600)
+                    message('play', clip='crab_walk', loop=True)
+                    message('walk', clip='crab_walk')
+                    self.assertIsNotNone(window.walk)
+                    planned = window.walk['distance']
+                    self.assertEqual(window.facing_right, planned > 0)
+                    window.grab()  # the mirrored pet paints
+                    for _ in range(4000):
+                        if window.walk is None:
+                            break
+                        window.last_tick_ms -= 16
+                        window._tick()
+                    self.assertIsNone(window.walk)
+                    self.assertFalse(window.facing_right)
+                    self.assertAlmostEqual(window.pet_x, 900 + planned, delta=1)
+                    self.assertEqual(window.pet_y, 600, 'walking keeps the height')
+                    message('walk', clip='crab_walk')
+                    message('play', clip='idle')
+                    self.assertIsNone(window.walk, 'another clip ends the walk on the spot')
+                    message('config', noMove=True)
+                    message('walk', clip='crab_walk')
+                    self.assertIsNone(window.walk, '不移动 refuses to walk')
+                    message('config', noMove=False)
                     # 弹弓弹射: a right click while dragging anchors the pet; a long
                     # enough pull fires it the other way, a short one just drops it.
                     window._move_to_pet(800, 400)

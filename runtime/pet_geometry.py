@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from math import ceil, cos, exp, hypot, pi, radians, sin
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 Rect = tuple[int, int, int, int]
 
@@ -276,6 +276,57 @@ def slingshot_stretch(pull: tuple[float, float], scale: float) -> tuple[float, f
     stretch = 1 + (SLINGSHOT_MAX_STRETCH - 1) * progress
     squeeze = 1 - (1 - 1 / SLINGSHOT_MAX_STRETCH) * progress
     return hypot(stretch * ux, squeeze * uy), hypot(stretch * uy, squeeze * ux)
+
+
+# Walking across the desktop: distances and the edge margin at scale 1.0, from
+# dsh-pet-indesktop (pet/catalog.py).
+WALK_MIN_PX = 60.0
+WALK_MAX_PX = 240.0
+WALK_MARGIN = 20.0
+
+
+def plan_walk(
+    center_x: float, left: float, right: float, half_width: float, scale: float, stride: float, rnd: Any,
+) -> tuple[int, int, float] | None:
+    """(direction, loops, distance) for a walk, or None when neither side has room.
+
+    The distance is a whole number of strides so the feet never slide; near an
+    edge the loop count drops, and a single loop that still does not fit is
+    shortened to the room left.
+    """
+    low, high = left + WALK_MARGIN + half_width, right - WALK_MARGIN - half_width
+    shortest = WALK_MIN_PX * scale
+    rooms = [(direction, room) for direction, room in ((-1, center_x - low), (1, high - center_x)) if room >= shortest]
+    if not rooms:
+        return None
+    direction, room = rnd.choice(rooms) if len(rooms) > 1 else rooms[0]
+    distance = rnd.uniform(shortest, min(WALK_MAX_PX * scale, room))
+    step = max(1.0, stride * scale)
+    loops = max(1, round(distance / step))
+    while loops > 1 and loops * step > room:
+        loops -= 1
+    return direction, loops, min(loops * step, room)
+
+
+def walk_progress(curve: list[float] | None, loops: int, fraction: float) -> float:
+    """Share of the walk covered after `fraction` of its time (0..1).
+
+    `curve[i]` is how far one loop has got by source frame i, so standing
+    frames hold the pet still and stepping frames carry it forward.
+    """
+    if fraction >= 1:
+        return 1.0
+    fraction = max(0.0, fraction)
+    if not curve:
+        return fraction
+    loops = max(1, loops)
+    position = fraction * loops
+    loop = min(int(position), loops - 1)
+    last = len(curve) - 1
+    index = (position - loop) * last
+    low = int(index)
+    within = curve[low] + (curve[min(low + 1, last)] - curve[low]) * (index - low)
+    return (loop + within) / loops
 
 
 # A click squashes the pet at its feet and lets it spring back.

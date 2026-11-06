@@ -41,6 +41,10 @@ from pathlib import Path
 
 from matte import MATTE_VERSION, clean_file
 
+# Walking clips: ground distance per loop and per-frame progress, measured by
+# dsh-pet-indesktop on the same source videos.
+MOVE_STRIDES_PATH = Path(__file__).with_name("dshpet_move_strides.json")
+
 CANVAS_WIDTH = 640
 CANVAS_HEIGHT = 360
 FPS = 24
@@ -580,6 +584,11 @@ def main() -> int:
         "actionMenu": ACTION_MENU,
         "idleMicroIntervalsMs": IDLE_MICRO_INTERVALS_MS,
         "interactionCooldownMs": 1200,
+        "moveClips": {
+            key: value
+            for key, value in json.loads(MOVE_STRIDES_PATH.read_text(encoding="utf-8"))["clips"].items()
+            if key in clips
+        },
     }
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     total_mb = sum(p.stat().st_size for p in pet_root.rglob("*.webp")) // (1024 * 1024)

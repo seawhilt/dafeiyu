@@ -125,6 +125,55 @@ enum PetMotion {
         return (hypot(stretch * ux, squeeze * uy), hypot(stretch * uy, squeeze * ux))
     }
 
+    /// Walking across the desktop: distances and the edge margin at scale 1.0,
+    /// from dsh-pet-indesktop. Same as runtime/pet_geometry.py.
+    static let walkMinDistance: CGFloat = 60
+    static let walkMaxDistance: CGFloat = 240
+    static let walkMargin: CGFloat = 20
+
+    struct WalkPlan: Equatable {
+        let direction: CGFloat
+        let loops: Int
+        let distance: CGFloat
+    }
+
+    /// A walk in whole strides, or nil when neither side has room. `pick`
+    /// chooses a side when both have room (below 0.5 walks left) and
+    /// `reach` (0...1) how far toward the longest allowed walk to go.
+    static func planWalk(
+        centerX: CGFloat, left: CGFloat, right: CGFloat, halfWidth: CGFloat,
+        scale: CGFloat, stride: CGFloat, pick: Double, reach: Double
+    ) -> WalkPlan? {
+        let low = left + walkMargin + halfWidth
+        let high = right - walkMargin - halfWidth
+        let shortest = walkMinDistance * scale
+        let rooms = [(CGFloat(-1), centerX - low), (CGFloat(1), high - centerX)].filter { $0.1 >= shortest }
+        guard !rooms.isEmpty else { return nil }
+        let (direction, room) = rooms.count > 1 ? rooms[pick < 0.5 ? 0 : 1] : rooms[0]
+        let longest = min(walkMaxDistance * scale, room)
+        let distance = shortest + (longest - shortest) * CGFloat(min(1, max(0, reach)))
+        let step = max(1, stride * scale)
+        var loops = max(1, Int((distance / step).rounded()))
+        while loops > 1 && CGFloat(loops) * step > room { loops -= 1 }
+        return WalkPlan(direction: direction, loops: loops, distance: min(CGFloat(loops) * step, room))
+    }
+
+    /// Share of the walk covered after `fraction` of its time (0...1);
+    /// `curve[i]` is how far one loop has got by source frame i.
+    static func walkProgress(curve: [Double], loops: Int, fraction: Double) -> Double {
+        if fraction >= 1 { return 1 }
+        let fraction = max(0, fraction)
+        guard curve.count > 1 else { return fraction }
+        let loops = max(1, loops)
+        let position = fraction * Double(loops)
+        let loop = min(Int(position), loops - 1)
+        let last = curve.count - 1
+        let index = (position - Double(loop)) * Double(last)
+        let low = Int(index)
+        let within = curve[low] + (curve[min(low + 1, last)] - curve[low]) * (index - Double(low))
+        return (Double(loop) + within) / Double(loops)
+    }
+
     /// A click squashes the pet at its feet and lets it spring back.
     static let squashMs: Double = 480
     static let squashDepth: Double = 0.12

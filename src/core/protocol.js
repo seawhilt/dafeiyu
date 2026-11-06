@@ -23,6 +23,9 @@ export const CompanionMessageKind = Object.freeze({
   // Daemon -> helper: the clip to play. Helper -> daemon: input and the end
   // of a clip's pass, so the daemon decides every animation.
   PLAY: 'play',
+  // Daemon -> helper: walk across the desktop while `clip` loops; the helper
+  // picks the direction and distance and reports an input of type 'walk-end'.
+  WALK: 'walk',
   INPUT: 'input',
   PASS: 'pass',
   // Daemon -> helper: dock against a screen edge ('left' | 'right') or
