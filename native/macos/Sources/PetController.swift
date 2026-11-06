@@ -130,6 +130,14 @@ final class PetController: NSObject {
     private var tiltTarget: CGFloat = 0
     private var dragSpeed: CGFloat = 0
     private var lastDragSample: (x: CGFloat, time: CFTimeInterval)?
+    /// Recent drag positions, for the release speed.
+    private var dragSamples: [PetMotion.Sample] = []
+    /// A thrown pet flies on after release; the drop is reported where it lands.
+    private var fling: PetMotion.Fling?
+    /// When the last click squash started.
+    private var squashStartedAt: CFTimeInterval?
+    private static let dragSampleKeep: CFTimeInterval = 0.2
+    private static let flingMaxTickMs: Int = 50
     private static let tiltEasing: CGFloat = 0.2
     /// The lean returns upright when the pointer pauses this long, in seconds.
     private static let tiltSettle: CFTimeInterval = 0.09
@@ -609,6 +617,7 @@ final class PetController: NSObject {
         }
         easeTilt()
         syncFrameTransition(previousFrame: previousFrame, previousClip: previousClip)
+        let moving = advanceFling(elapsedMs: elapsed) || squashActive()
         var overlayExpired = false
         if let deadline = overlayDeadlineMs, now >= deadline {
             clearOverlay()
@@ -632,12 +641,49 @@ final class PetController: NSObject {
             || model.activeClipName != previousClip
             || tilt != previousTilt
             || fadeFromFrame != nil
+            || moving
             || overlayExpired
             || statusExpired
             || isBubbleVisible != wasBubbleVisible
         if repaint {
             contentView?.needsDisplay = true
         }
+    }
+
+    /// Move a thrown pet one tick; report the drop once it lands.
+    private func advanceFling(elapsedMs: Int) -> Bool {
+        guard let current = fling else { return false }
+        // A stalled timer must not jump the pet across the screen.
+        let seconds = CGFloat(min(elapsedMs, Self.flingMaxTickMs)) / 1000
+        let bounds = PetMotion.flingBounds(petSize: CGSize(width: petWidth, height: petHeight), screen: currentScreenFrame())
+        if let next = PetMotion.step(current, seconds: seconds, bounds: bounds) {
+            fling = next
+            moveToPet(next.position.x, next.position.y)
+        } else {
+            landFling()
+        }
+        return true
+    }
+
+    private func landFling() {
+        fling = nil
+        reportDrop()
+        saveLayout()
+        updateClickThrough()
+    }
+
+    /// Catching a thrown pet lands it where it is.
+    func catchFling() {
+        if fling != nil { landFling() }
+    }
+
+    private func squashActive() -> Bool {
+        guard let started = squashStartedAt else { return false }
+        if PetMotion.squash(elapsedMs: (CACurrentMediaTime() - started) * 1000) == nil {
+            squashStartedAt = nil
+        }
+        // One more repaint after it ends puts the pet back to full size.
+        return true
     }
 
     /// Switch to the clip the daemon chose.
@@ -788,6 +834,7 @@ final class PetController: NSObject {
         dragPetOffsetY = rect.minY
         dragSpeed = 0
         lastDragSample = nil
+        dragSamples = []
         report("input", ["type": "drag-start"])
         contentView?.needsDisplay = true
     }
@@ -806,11 +853,15 @@ final class PetController: NSObject {
             tiltTarget = PetGeometry.tilt(forSpeed: dragSpeed)
         }
         lastDragSample = (petX, now)
+        dragSamples = dragSamples.filter { now - $0.time <= Self.dragSampleKeep }
+            + [PetMotion.Sample(point: CGPoint(x: petX, y: petY), time: now)]
         contentView?.needsDisplay = true
     }
 
     func endDrag() {
         guard dragging else { return }
+        let velocity = reducedMotion ? nil : PetMotion.flingVelocity(dragSamples, now: CACurrentMediaTime())
+        dragSamples = []
         fadeFromFrame = nil
         dragging = false
         lastDragSample = nil
@@ -820,16 +871,25 @@ final class PetController: NSObject {
         if let panel = panel, panel.frame.size != windowSize() {
             resizeAndReposition()
         }
-        // Report a drop by a screen side; the daemon decides whether to dock.
+        if let velocity = velocity {
+            fling = PetMotion.Fling(position: CGPoint(x: petX, y: petY), velocity: velocity)
+            contentView?.needsDisplay = true
+            return
+        }
+        reportDrop()
+        saveLayout()
+        updateClickThrough()
+        contentView?.needsDisplay = true
+    }
+
+    /// Report a drop by a screen side; the daemon decides whether to dock.
+    private func reportDrop() {
         var drop: [String: Any] = ["type": "drag-end"]
         let pet = NSRect(x: petX, y: petY, width: petWidth, height: petHeight)
         if let edge = PetGeometry.dockEdge(pet: pet, screen: currentScreenBounds(), outerEdges: currentOuterEdges()) {
             drop["edge"] = edge
         }
         report("input", drop)
-        saveLayout()
-        updateClickThrough()
-        contentView?.needsDisplay = true
     }
 
     /// Report which part of the pet was clicked; the daemon reacts.
@@ -849,6 +909,7 @@ final class PetController: NSObject {
         } else {
             region = "poke"
         }
+        if !reducedMotion { squashStartedAt = CACurrentMediaTime() }
         report("input", ["type": "click", "region": region])
     }
 
@@ -1357,6 +1418,13 @@ final class PetController: NSObject {
             // The view is flipped, so a positive angle turns clockwise.
             let angle = PetGeometry.dockAngle(edge: dockEdge) + tilt
             if angle != 0 { ctx.rotate(by: angle * .pi / 180) }
+            if let started = squashStartedAt, let squash = PetMotion.squash(elapsedMs: (CACurrentMediaTime() - started) * 1000) {
+                // Squash about the feet (the view is flipped: down is +y) so
+                // the pet stays on the ground.
+                ctx.translateBy(x: 0, y: drawHeight / 2)
+                ctx.scaleBy(x: squash.x, y: squash.y)
+                ctx.translateBy(x: 0, y: -drawHeight / 2)
+            }
             // The content view is flipped (top-left origin). NSImage drawing
             // does not compensate for a flipped context, which would render
             // the pet vertically mirrored. Mirror about the image's own

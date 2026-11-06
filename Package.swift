@@ -19,7 +19,7 @@ let package = Package(
                 "PetView.swift",
                 "main.swift",
             ],
-            sources: ["ClipPlayer.swift", "LayoutStore.swift", "PetGeometry.swift", "TaskCard.swift"]
+            sources: ["ClipPlayer.swift", "LayoutStore.swift", "PetGeometry.swift", "PetMotion.swift", "TaskCard.swift"]
         ),
         .testTarget(
             name: "BigFishCoreTests",

@@ -3,6 +3,7 @@
 import os
 import sys
 import threading
+import time
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -16,7 +17,7 @@ except ImportError:
     QApplication = None
 
 from runtime.helper import EventRecorder, run_visual
-from runtime.pet_geometry import tilt_allowance
+from runtime.pet_geometry import Fling, tilt_allowance
 
 
 @unittest.skipUnless(QApplication is not None, 'Qt integration runs with the Helper build dependencies')
@@ -64,6 +65,26 @@ class HelperGeometryTests(unittest.TestCase):
                                 window._tick()
                             assert_anchor(expected)
                         window.grab()  # Painting must use the same rectangle as hit testing.
+                    # A thrown pet flies on, bounces off the right edge, comes
+                    # to rest on screen and is saved where it landed.
+                    window._move_to_pet(1200, 400)
+                    window.fling = Fling(1200.0, 400.0, 3000.0, -200.0)
+                    for _ in range(300):
+                        if window.fling is None:
+                            break
+                        window.last_tick_ms -= 16
+                        window._tick()
+                    self.assertIsNone(window.fling)
+                    pet_width, _ = window._pet_size()
+                    self.assertLess(window.pet_x, 1920 - pet_width, 'it bounced back off the edge')
+                    self.assertGreater(window.pet_x, 1200)
+                    self.assertEqual((window.layout['petX'], window.layout['petY']), (window.pet_x, window.pet_y))
+                    # A click squash paints without moving the anchor.
+                    anchor = (window.pet_x, window.pet_y)
+                    window.squash_started = time.monotonic()
+                    window._tick()
+                    window.grab()
+                    assert_anchor(anchor)
                     # Docked, the pet hangs off the screen side, holds still and
                     # hides its bubble; it comes back out by the same side.
                     window._move_to_pet(30, 400)
