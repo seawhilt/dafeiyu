@@ -2,7 +2,7 @@
 
 本项目最初基于 [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu) 0.1.20，之前的版本历史见上游仓库。
 
-## 未发布
+## 0.3.0 · 2026-11-06
 
 ### 不兼容变更
 
