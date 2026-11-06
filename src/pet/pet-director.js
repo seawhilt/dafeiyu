@@ -13,8 +13,9 @@ const CLICK_LINES = Object.freeze({
 })
 const ANNOYED_LINE = '别戳啦！再戳我就生气了！'
 const PAT_LINE = '好啦好啦，知道你喜欢我~'
-const UNDOCK_LINE = '我出来啦~'
 const DOCK_EDGES = new Set(['left', 'right'])
+// 边缘探头: a click stands the probing pet upright this long, then it leans back in.
+const ENGAGED_MS = 5000
 const LINE_TTL_MS = 1800
 const ACTION_TTL_MS = 2500
 
@@ -37,8 +38,12 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
   let lastState = null
   let pulseTimer
   let microTimer
-  // The screen edge the pet is docked on, or null.
+  // The screen edge the pet is docked on, or null; while engaged it stands
+  // upright after a click instead of leaning in.
   let docked = null
+  let engaged = false
+  let engagedTimer
+  let edgeProbe = true
   let stopped = false
 
   const later = (delay, fn) => {
@@ -47,9 +52,9 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     return timer
   }
 
-  // A docked pet holds still; the clip catches up when it comes back out.
+  // A probing pet holds still; the clip catches up when it comes back out.
   const play = (force = false) => {
-    if (docked) return
+    if (docked && !engaged) return
     if (!force && model.activeClip === sentClip) return
     sentClip = model.activeClip
     send(createMessage(CompanionMessageKind.PLAY, { clip: sentClip, loop: model.clip()?.loop === true }))
@@ -62,13 +67,33 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     model.clearOverlay()
     play()
     docked = edge
-    send(createMessage(CompanionMessageKind.DOCK, { edge }))
+    engaged = false
+    send(createMessage(CompanionMessageKind.DOCK, { edge, engaged }))
   }
 
   const undock = () => {
+    timers.clearTimeout(engagedTimer)
     docked = null
-    send(createMessage(CompanionMessageKind.DOCK, { edge: null }))
+    engaged = false
+    send(createMessage(CompanionMessageKind.DOCK, { edge: null, engaged }))
     play(true)
+  }
+
+  // Stand upright for a while; every touch restarts the wait.
+  const engage = () => {
+    timers.clearTimeout(engagedTimer)
+    if (!engaged) {
+      engaged = true
+      send(createMessage(CompanionMessageKind.DOCK, { edge: docked, engaged }))
+      play(true)
+    }
+    engagedTimer = later(ENGAGED_MS, () => {
+      if (!docked) return
+      engaged = false
+      model.clearOverlay()
+      play()
+      send(createMessage(CompanionMessageKind.DOCK, { edge: docked, engaged }))
+    })
   }
 
   const schedulePulseEnd = () => {
@@ -105,7 +130,9 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
       model = new AnimationModel(next)
       sentClip = null
       // The restarted helper comes back undocked.
+      timers.clearTimeout(engagedTimer)
       docked = null
+      engaged = false
       if (lastState) model.applyState(lastState.state, lastState.activity)
       play(true)
       scheduleMicro()
@@ -126,6 +153,10 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
         case CompanionMessageKind.CONFIG:
           if (typeof message.reducedMotion === 'boolean') reducedMotion = message.reducedMotion
           if (['quiet', 'normal', 'lively'].includes(message.activityLevel)) activityLevel = message.activityLevel
+          if (typeof message.edgeProbe === 'boolean') {
+            edgeProbe = message.edgeProbe
+            if (!edgeProbe && docked) undock()
+          }
           if (message.animationGap !== undefined) {
             gapMs = Number.isFinite(message.animationGap) ? Math.max(0, message.animationGap) * 1000 : 0
           }
@@ -154,15 +185,9 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     /** Clicks, drags and menu actions reported by the helper. */
     input(report) {
       const at = now()
-      // Any touch on a docked pet brings it back out; a drag carries it off.
-      if (docked && report?.type !== 'drag-end') {
-        undock()
-        if (report?.type !== 'drag-start') {
-          sayLine(UNDOCK_LINE, LINE_TTL_MS)
-          scheduleMicro()
-          return
-        }
-      }
+      // A drag carries a docked pet off; a click stands it upright for a while.
+      if (docked && report?.type === 'drag-start') undock()
+      else if (docked && (report?.type === 'click' || report?.type === 'double-click')) engage()
       switch (report?.type) {
         case 'click': {
           const region = Object.hasOwn(CLICK_LINES, report.region) ? report.region : 'poke'
@@ -185,7 +210,7 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
         case 'drag-end':
           // A long drag may have outlived the pulse underneath it.
           model.expirePulse(at)
-          if (DOCK_EDGES.has(report.edge)) {
+          if (edgeProbe && DOCK_EDGES.has(report.edge)) {
             dock(report.edge)
             break
           }
@@ -223,6 +248,7 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
       stopped = true
       timers.clearTimeout(pulseTimer)
       timers.clearTimeout(microTimer)
+      timers.clearTimeout(engagedTimer)
     },
   }
 }

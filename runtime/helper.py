@@ -26,7 +26,7 @@ try:
     )
     from .asset_paths import bundle_root
     from .pet_geometry import (
-        THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step,
+        THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_extent, docked_x, fling_bounds, fling_step,
         fling_velocity, position_window, screen_outer_edges, slingshot_launch, slingshot_pull, slingshot_stretch,
         squash_scale, tilt_allowance, tilt_for_speed,
     )
@@ -38,7 +38,7 @@ except ImportError:
     )
     from asset_paths import bundle_root
     from pet_geometry import (
-        THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step,
+        THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_extent, docked_x, fling_bounds, fling_step,
         fling_velocity, position_window, screen_outer_edges, slingshot_launch, slingshot_pull, slingshot_stretch,
         squash_scale, tilt_allowance, tilt_for_speed,
     )
@@ -492,6 +492,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             # The screen side the daemon docked the pet on, and where it comes
             # back out.
             self.dock_edge: str | None = None
+            # 边缘探头: after a click the docked pet stands upright for a while.
+            self.dock_engaged = False
             self.undocked_pet: tuple[int, int] | None = None
             # Lean while dragging, in degrees, easing toward tilt_target.
             self.tilt = 0.0
@@ -576,7 +578,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             elif kind == "play":
                 self._play(message)
             elif kind == "dock":
-                self._set_dock(message.get("edge"))
+                self._set_dock(message.get("edge"), message.get("engaged") is True)
             elif kind == "balance":
                 self.balance_summary = str(message.get("summary", ""))[:200]
                 self._sync_bubble_size()
@@ -773,7 +775,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             was_bubble_visible = self.last_tick_bubble_visible
             # The daemon decides what follows each pass; report it. A docked
             # pet holds still.
-            ended = None if self.dock_edge else self.model.advance(
+            ended = None if self.dock_edge and not self.dock_engaged else self.model.advance(
                 0 if self.reduced_motion else round(elapsed_ms * self.playback_speed))
             if ended is not None:
                 emit_reply("pass", clip=ended)
@@ -898,11 +900,19 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             ]
             return screen_outer_edges((own.x(), own.y(), own.width(), own.height()), screens)
 
-        def _set_dock(self, edge: Any) -> None:
+        def _set_dock(self, edge: Any, engaged: bool = False) -> None:
             """Dock on a screen side, or come back out (None)."""
             edge = edge if edge in {"left", "right"} else None
+            engaged = engaged and edge is not None
             if edge == self.dock_edge:
+                if engaged != self.dock_engaged:
+                    # Stand upright after a click, or lean back in.
+                    self.dock_engaged = engaged
+                    self.fade_from_pixmap = None
+                    self._sync_bubble_size()
+                    self._place_docked()
                 return
+            self.dock_engaged = engaged
             screen = self._screen_rect()
             if edge is not None and screen is not None:
                 left, top, width, height = screen
@@ -941,7 +951,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             if self.dock_edge is None or screen is None:
                 return
             pet_width, pet_height = self._pet_size()
-            self.pet_x = docked_x(self.dock_edge, (pet_width, pet_height), screen)
+            self.pet_x = docked_x(self.dock_edge, (pet_width, pet_height), screen, self.dock_engaged)
             # A quarter turn needs pet_width of vertical room; the docked window
             # grows to fit and the pet is vertically centred in it. Moving the
             # window up by that inset keeps the pet's screen centre unchanged.
@@ -1084,10 +1094,10 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             else:
                 height = pet_height + 26 + allowance * 2
                 if self.dock_edge is not None:
-                    # Turned a quarter, the pet spans its width vertically; a
-                    # window reserved for the upright height would clip the
-                    # docked head.
-                    height = max(height, pet_width + 16)
+                    # Leaning, the pet's outline is taller than upright; a window
+                    # reserved for the upright height would clip the docked head.
+                    _, turned_height = docked_extent((pet_width, pet_height), self.dock_engaged)
+                    height = max(height, round(turned_height) + 16)
                 self.setFixedSize(pet_area, height)
 
         def _screen_geometry_at(self, x: int, y: int):
@@ -1453,7 +1463,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 # Wide clips keep the pet's scale and centre; only their width differs.
                 x += (pet_width - pw) / 2
                 painter.save()
-                angle = dock_angle(self.dock_edge) + self.tilt
+                angle = dock_angle(self.dock_edge, self.dock_engaged) + self.tilt
                 if angle:
                     # Turn about the pet's centre; Qt's y axis points down,
                     # so a positive angle turns clockwise.

@@ -2,11 +2,13 @@ import unittest
 from math import cos, radians, sin
 
 from runtime.pet_geometry import (
+    DOCK_ENGAGED_PEEK,
     DOCK_PEEK,
     MAX_TILT,
     bubble_top,
     dock_angle,
     dock_edge,
+    docked_extent,
     docked_x,
     position_window,
     screen_outer_edges,
@@ -62,12 +64,24 @@ class DockGeometryTests(unittest.TestCase):
         self.assertEqual(dock_edge((790, 100, 200, 220), self.SCREEN), "right")
         self.assertIsNone(dock_edge((400, 100, 200, 220), self.SCREEN))
 
-    def test_a_docked_pet_shows_only_its_head(self) -> None:
+    def test_a_probing_pet_leans_in_and_shows_part_of_itself(self) -> None:
+        width, height = docked_extent((200, 220), engaged=False)
+        self.assertAlmostEqual(width, (200 + 220) * sin(radians(45)), delta=0.01)
+        self.assertAlmostEqual(height, width, delta=0.01)
+        # The visible share is measured on the turned outline.
         left = docked_x("left", (200, 220), self.SCREEN)
-        self.assertAlmostEqual(left + 100 + 110, 220 * DOCK_PEEK, delta=1)
+        self.assertAlmostEqual(left + 100 + width / 2, width * DOCK_PEEK, delta=1)
         right = docked_x("right", (200, 220), self.SCREEN)
-        self.assertAlmostEqual(1000 - (right + 100 - 110), 220 * DOCK_PEEK, delta=1)
-        self.assertEqual((dock_angle("left"), dock_angle("right"), dock_angle(None)), (90.0, -90.0, 0.0))
+        self.assertAlmostEqual(1000 - (right + 100 - width / 2), width * DOCK_PEEK, delta=1)
+        self.assertEqual((dock_angle("left"), dock_angle("right"), dock_angle(None)), (45.0, -45.0, 0.0))
+
+    def test_a_clicked_probing_pet_stands_upright_mostly_on_screen(self) -> None:
+        self.assertEqual(docked_extent((200, 220), engaged=True), (200, 220))
+        self.assertEqual(dock_angle("left", engaged=True), 0.0)
+        left = docked_x("left", (200, 220), self.SCREEN, engaged=True)
+        self.assertAlmostEqual(left + 200, 200 * DOCK_ENGAGED_PEEK, delta=1)
+        right = docked_x("right", (200, 220), self.SCREEN, engaged=True)
+        self.assertAlmostEqual(1000 - right, 200 * DOCK_ENGAGED_PEEK, delta=1)
 
     def test_tilt_leans_with_the_drag_and_is_capped(self) -> None:
         self.assertEqual(tilt_for_speed(400), 5.0)

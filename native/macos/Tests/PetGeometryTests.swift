@@ -47,17 +47,27 @@ final class PetGeometryTests: XCTestCase {
         XCTAssertNil(PetGeometry.dockEdge(pet: CGRect(x: 400, y: 100, width: 200, height: 220), screen: screen))
     }
 
-    func testADockedPetShowsOnlyItsHead() {
+    func testAProbingPetLeansInAndShowsPartOfItself() {
         let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
         let size = CGSize(width: 200, height: 220)
-        // Turned a quarter, the pet spans its height across the screen side.
+        let outline = PetGeometry.dockedExtent(petSize: size).width
+        XCTAssertEqual(outline, 420 * sin(.pi / 4), accuracy: 0.01)
         let left = PetGeometry.dockedX(edge: "left", petSize: size, screen: screen)
-        XCTAssertEqual(left + size.width / 2 + size.height / 2, 220 * PetGeometry.dockPeek, accuracy: 0.001)
+        XCTAssertEqual(left + size.width / 2 + outline / 2, outline * PetGeometry.dockPeek, accuracy: 0.001)
         let right = PetGeometry.dockedX(edge: "right", petSize: size, screen: screen)
-        XCTAssertEqual(1000 - (right + size.width / 2 - size.height / 2), 220 * PetGeometry.dockPeek, accuracy: 0.001)
-        XCTAssertEqual(PetGeometry.dockAngle(edge: "left"), 90)
-        XCTAssertEqual(PetGeometry.dockAngle(edge: "right"), -90)
+        XCTAssertEqual(1000 - (right + size.width / 2 - outline / 2), outline * PetGeometry.dockPeek, accuracy: 0.001)
+        XCTAssertEqual(PetGeometry.dockAngle(edge: "left"), 45)
+        XCTAssertEqual(PetGeometry.dockAngle(edge: "right"), -45)
         XCTAssertEqual(PetGeometry.dockAngle(edge: nil), 0)
+    }
+
+    func testAClickedProbingPetStandsUpright() {
+        let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        let size = CGSize(width: 200, height: 220)
+        XCTAssertEqual(PetGeometry.dockedExtent(petSize: size, engaged: true), size)
+        XCTAssertEqual(PetGeometry.dockAngle(edge: "left", engaged: true), 0)
+        let left = PetGeometry.dockedX(edge: "left", petSize: size, screen: screen, engaged: true)
+        XCTAssertEqual(left + 200, 200 * PetGeometry.dockEngagedPeek, accuracy: 0.001)
     }
 
     func testTiltLeansWithTheDragAndIsCapped() {

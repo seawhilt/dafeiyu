@@ -17,7 +17,7 @@ except ImportError:
     QApplication = None
 
 from runtime.helper import EventRecorder, run_visual
-from runtime.pet_geometry import Fling, tilt_allowance
+from runtime.pet_geometry import Fling, docked_extent, tilt_allowance
 
 
 @unittest.skipUnless(QApplication is not None, 'Qt integration runs with the Helper build dependencies')
@@ -146,13 +146,25 @@ class HelperGeometryTests(unittest.TestCase):
                         window._tick()
                     self.assertEqual(window.model.frame, frame)
                     self.assertEqual((window.layout['petX'], window.layout['petY']), (8, 400))
-                    # A quarter-turned pet needs its width of vertical room and
-                    # is centred in the docked window, or the head gets clipped.
+                    # A leaning pet needs the turned outline's height and is
+                    # centred in the docked window, or the head gets clipped.
                     pet_width, pet_height = window._pet_size()
-                    self.assertGreaterEqual(window.height(), pet_width + 16)
+                    self.assertGreaterEqual(window.height(), docked_extent((pet_width, pet_height))[1] + 15)
                     _, docked_pet_y, _, _ = window._pet_rect()
                     self.assertAlmostEqual(docked_pet_y + pet_height / 2, window.height() / 2, delta=1)
                     window.grab()
+                    # A click stands it upright, further out, and animated.
+                    leaning_x = window.pet_x
+                    message('dock', edge='left', engaged=True)
+                    self.assertTrue(window.dock_engaged)
+                    self.assertGreater(window.pet_x, leaning_x)
+                    frame = window.model.frame
+                    for _ in range(10):
+                        window.last_tick_ms -= 100
+                        window._tick()
+                    self.assertNotEqual(window.model.frame, frame, 'an upright pet animates')
+                    message('dock', edge='left', engaged=False)
+                    self.assertEqual(window.pet_x, leaning_x)
                     message('dock', edge=None)
                     assert_anchor((8, 400))
                     message('config', bubbleMode='hidden')

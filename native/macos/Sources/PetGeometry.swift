@@ -4,8 +4,12 @@ import Foundation
 enum PetGeometry {
     /// A drop this close to a side of the screen docks the pet there.
     static let dockSnapDistance: CGFloat = 16
-    /// Share of the docked (rotated) pet that stays on screen: about the head.
-    static let dockPeek: CGFloat = 0.6
+    /// 边缘探头 (from dsh-pet-indesktop): a docked pet leans this far, and this
+    /// share of its turned outline stays on screen; after a click it stands
+    /// upright with most of itself showing. Same as runtime/pet_geometry.py.
+    static let dockAngle: CGFloat = 45
+    static let dockPeek: CGFloat = 0.55
+    static let dockEngagedPeek: CGFloat = 0.82
     /// The steepest lean while dragging, in degrees.
     static let maxTilt: CGFloat = 14
     /// Drag speed, in points per second, per degree of lean.
@@ -54,22 +58,33 @@ enum PetGeometry {
         return nil
     }
 
-    /// The pet's x when docked on `edge`. The pet is turned a quarter so its
-    /// height lies along the screen; only the head end stays visible.
-    static func dockedX(edge: String, petSize: CGSize, screen: CGRect) -> CGFloat {
-        let visible = petSize.height * dockPeek
+    /// Width and height of the docked pet's outline, leaning or upright.
+    static func dockedExtent(petSize: CGSize, engaged: Bool = false) -> CGSize {
+        if engaged { return petSize }
+        let angle = dockAngle * .pi / 180
+        return CGSize(
+            width: petSize.width * cos(angle) + petSize.height * sin(angle),
+            height: petSize.width * sin(angle) + petSize.height * cos(angle)
+        )
+    }
+
+    /// The pet's x when docked on `edge`: part of it peeks in from the side.
+    static func dockedX(edge: String, petSize: CGSize, screen: CGRect, engaged: Bool = false) -> CGFloat {
+        let outline = dockedExtent(petSize: petSize, engaged: engaged).width
+        let visible = outline * (engaged ? dockEngagedPeek : dockPeek)
         let centerX = edge == "left"
-            ? screen.minX + visible - petSize.height / 2
-            : screen.maxX - visible + petSize.height / 2
+            ? screen.minX + visible - outline / 2
+            : screen.maxX - visible + outline / 2
         return centerX - petSize.width / 2
     }
 
     /// The pet's turn when docked, in degrees (positive is clockwise on
-    /// screen); the head points into the screen.
-    static func dockAngle(edge: String?) -> CGFloat {
+    /// screen); the head leans into the screen.
+    static func dockAngle(edge: String?, engaged: Bool = false) -> CGFloat {
+        if engaged { return 0 }
         switch edge {
-        case "left": return 90
-        case "right": return -90
+        case "left": return dockAngle
+        case "right": return -dockAngle
         default: return 0
         }
     }

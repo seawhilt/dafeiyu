@@ -123,6 +123,8 @@ final class PetController: NSObject {
     private var fadeDuration: Double = 0.15
     /// The screen side the pet is docked on, as the daemon decided, or nil.
     private var dockEdge: String?
+    /// 边缘探头: after a click the docked pet stands upright for a while.
+    private var dockEngaged = false
     /// Where the pet goes when it comes back out of the dock.
     private var undockedPet: NSPoint?
     /// Lean while dragging, in degrees, easing toward `tiltTarget`.
@@ -394,9 +396,10 @@ final class PetController: NSObject {
         let tiltAllowance = PetGeometry.tiltAllowance(petSize: NSSize(width: petWidth, height: petHeight))
         var height = petHeight + (showsCard ? cardHeightPoints + 34 : 26) + tiltAllowance * 2
         if dockEdge != nil {
-            // Turned a quarter, the pet spans its width vertically. Reserve
-            // that much room (plus a margin) or the docked head gets clipped.
-            height = max(height, petWidth + 16)
+            // Leaning, the pet's outline is taller than upright. Reserve that
+            // much room (plus a margin) or the docked head gets clipped.
+            let turned = PetGeometry.dockedExtent(petSize: NSSize(width: petWidth, height: petHeight), engaged: dockEngaged)
+            height = max(height, turned.height + 16)
         }
         return NSSize(
             width: showsCard ? max(petArea, cardWidthPoints + 28) : petArea,
@@ -640,7 +643,7 @@ final class PetController: NSObject {
         let wasBubbleVisible = lastTickBubbleVisible
         // The daemon decides what follows each pass; report it. A docked pet
         // holds still.
-        if dockEdge == nil, let ended = model.advance(elapsedMs: reducedMotion ? 0 : Int((Double(elapsed) * playbackSpeed).rounded())) {
+        if dockEdge == nil || dockEngaged, let ended = model.advance(elapsedMs: reducedMotion ? 0 : Int((Double(elapsed) * playbackSpeed).rounded())) {
             report("pass", ["clip": ended])
         }
         easeTilt()
@@ -743,9 +746,22 @@ final class PetController: NSObject {
     }
 
     /// Dock on a screen side, or come back out (nil).
-    private func setDock(_ edge: String?) {
+    private func setDock(_ edge: String?, engaged: Bool = false) {
         let next = edge == "left" || edge == "right" ? edge : nil
-        guard next != dockEdge else { return }
+        let nextEngaged = engaged && next != nil
+        guard next != dockEdge else {
+            if nextEngaged != dockEngaged {
+                // Stand upright after a click, or lean back in.
+                dockEngaged = nextEngaged
+                fadeFromFrame = nil
+                placeDocked()
+                saveLayout()
+                updateClickThrough()
+                contentView?.needsDisplay = true
+            }
+            return
+        }
+        dockEngaged = nextEngaged
         if let next = next {
             let screen = currentScreenFrame()
             // Coming out, the pet stands fully on screen by the same side.
@@ -815,7 +831,7 @@ final class PetController: NSObject {
         // Dock against the physical display edge; the visible frame decides
         // where the pet rests when it comes back out (inside a visible Dock).
         let screen = currentScreenBounds()
-        petX = PetGeometry.dockedX(edge: edge, petSize: NSSize(width: petWidth, height: petHeight), screen: screen)
+        petX = PetGeometry.dockedX(edge: edge, petSize: NSSize(width: petWidth, height: petHeight), screen: screen, engaged: dockEngaged)
         let windowX = petX - (size.width - petWidth) / 2
         // petRect() is vertically centred in the docked window, so the pet's
         // bottom sits this far above the frame origin. petY itself does not
@@ -1209,7 +1225,7 @@ final class PetController: NSObject {
         case "play":
             play(message)
         case "dock":
-            setDock(message["edge"] as? String)
+            setDock(message["edge"] as? String, engaged: message["engaged"] as? Bool == true)
         case "balance":
             balanceSummary = String((message["summary"] as? String ?? "").prefix(200))
             resizeAndReposition()
@@ -1520,7 +1536,7 @@ final class PetController: NSObject {
             ctx.interpolationQuality = .high
             ctx.translateBy(x: centerX, y: centerY)
             // The view is flipped, so a positive angle turns clockwise.
-            let angle = PetGeometry.dockAngle(edge: dockEdge) + tilt
+            let angle = PetGeometry.dockAngle(edge: dockEdge, engaged: dockEngaged) + tilt
             if angle != 0 { ctx.rotate(by: angle * .pi / 180) }
             if let started = squashStartedAt, let squash = PetMotion.squash(elapsedMs: (CACurrentMediaTime() - started) * 1000) {
                 // Squash about the feet (the view is flipped: down is +y) so

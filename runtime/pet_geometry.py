@@ -47,8 +47,12 @@ def bubble_top(pet_y: int, pet_height: int, card_height: int, window_height: int
 
 # A drop this close to a side of the screen docks the pet there.
 DOCK_SNAP_DISTANCE = 16
-# Share of the docked (rotated) pet that stays on screen: about the head.
-DOCK_PEEK = 0.6
+# 边缘探头 (from dsh-pet-indesktop): a docked pet leans this far, and this share
+# of its turned outline stays on screen; after a click it stands upright with
+# most of itself showing.
+DOCK_ANGLE = 45.0
+DOCK_PEEK = 0.55
+DOCK_ENGAGED_PEEK = 0.82
 # The steepest lean while dragging, in degrees.
 MAX_TILT = 14.0
 # Drag speed, in pixels per second, per degree of lean.
@@ -103,21 +107,35 @@ def dock_edge(
     return None
 
 
-def docked_x(edge: str, pet_size: tuple[int, int], screen: tuple[int, int, int, int]) -> int:
-    """The pet's x when docked: turned a quarter, only the head end shows."""
+def docked_extent(pet_size: tuple[int, int], engaged: bool = False) -> tuple[float, float]:
+    """Width and height of the docked pet's outline, turned or upright."""
     pet_width, pet_height = pet_size
+    if engaged:
+        return pet_width, pet_height
+    angle = radians(DOCK_ANGLE)
+    return (
+        pet_width * cos(angle) + pet_height * sin(angle),
+        pet_width * sin(angle) + pet_height * cos(angle),
+    )
+
+
+def docked_x(edge: str, pet_size: tuple[int, int], screen: tuple[int, int, int, int], engaged: bool = False) -> int:
+    """The pet's x when docked: part of it peeks in from the screen side."""
+    outline, _ = docked_extent(pet_size, engaged)
     left, _top, screen_width, _screen_height = screen
-    visible = pet_height * DOCK_PEEK
+    visible = outline * (DOCK_ENGAGED_PEEK if engaged else DOCK_PEEK)
     if edge == "left":
-        center_x = left + visible - pet_height / 2
+        center_x = left + visible - outline / 2
     else:
-        center_x = left + screen_width - visible + pet_height / 2
-    return round(center_x - pet_width / 2)
+        center_x = left + screen_width - visible + outline / 2
+    return round(center_x - pet_size[0] / 2)
 
 
-def dock_angle(edge: str | None) -> float:
-    """The pet's turn when docked, clockwise in degrees; the head points in."""
-    return {"left": 90.0, "right": -90.0}.get(edge or "", 0.0)
+def dock_angle(edge: str | None, engaged: bool = False) -> float:
+    """The pet's turn when docked, clockwise in degrees; the head leans in."""
+    if engaged:
+        return 0.0
+    return {"left": DOCK_ANGLE, "right": -DOCK_ANGLE}.get(edge or "", 0.0)
 
 
 def tilt_for_speed(speed: float) -> float:
