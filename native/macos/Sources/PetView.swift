@@ -1,5 +1,16 @@
 import AppKit
 
+/// The pet's window. AppKit keeps a window's top edge below the menu bar,
+/// but the upper part of this window is transparent room for the bubble, so
+/// that limit stopped an upward drag while the pet itself was still about a
+/// fifth of the screen down. The pet's own position is clamped by
+/// PetGeometry.clamp instead.
+final class PetPanel: NSPanel {
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
+}
+
 /// Content view: draws the pet + status card and handles mouse interactions.
 /// Uses a flipped coordinate system (top-left origin) to match the original
 /// Qt helper's drawing math.

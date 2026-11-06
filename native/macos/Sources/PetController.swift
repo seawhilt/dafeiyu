@@ -439,7 +439,13 @@ final class PetController: NSObject {
         // Sit right above the head: the tail tip lands just inside the
         // frame's transparent headroom instead of floating far above it.
         let tailTip = pet.minY + bubbleHeadroom * scale * pixelScale
-        let cardY = max(7, tailTip - Self.bubbleTail.height * bubbleScale - size.height)
+        var cardY = max(7, tailTip - Self.bubbleTail.height * bubbleScale - size.height)
+        // The window may reach above the screen (see PetPanel); keep the
+        // card readable by sliding it down over the head rather than off.
+        if let panel = panel {
+            let overflow = panel.frame.maxY - currentScreenFrame().maxY
+            if overflow > 0 { cardY = max(cardY, overflow + 7) }
+        }
         return NSRect(x: cardX, y: cardY, width: size.width, height: size.height)
     }
 
@@ -526,7 +532,7 @@ final class PetController: NSObject {
 
     private func buildWindow() {
         let size = windowSize()
-        let panel = NSPanel(
+        let panel = PetPanel(
             contentRect: NSRect(x: 100, y: 100, width: size.width, height: size.height),
             styleMask: .borderless,
             backing: .buffered,
