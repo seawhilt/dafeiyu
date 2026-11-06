@@ -16,6 +16,7 @@ final class PetMotionTests: XCTestCase {
 
     func testASlowDragOrAPauseJustDrops() {
         XCTAssertNil(PetMotion.flingVelocity([sample(100, 500, 1.00), sample(110, 500, 1.04)], now: 1.05))
+        XCTAssertEqual(PetMotion.flingMinSpeed, 500)
         XCTAssertNil(PetMotion.flingVelocity([sample(100, 500, 1.00), sample(190, 500, 1.04)], now: 1.13))
         XCTAssertNil(PetMotion.flingVelocity([sample(0, 0, 0), sample(900, 0, 0.1), sample(905, 0, 0.2), sample(910, 0, 0.25)], now: 0.25))
         XCTAssertNil(PetMotion.flingVelocity([sample(0, 0, 1)], now: 1))
@@ -34,20 +35,52 @@ final class PetMotionTests: XCTestCase {
         XCTAssertEqual(PetMotion.flingMaxSpeed, PetMotion.throwStrengthCaps["standard"])
     }
 
-    func testAThrowSlowsDownAndBouncesOffEdges() {
-        let screen = CGRect(x: 0, y: 0, width: 1920, height: 1040)
-        let bounds = PetMotion.flingBounds(petSize: CGSize(width: 200, height: 160), screen: screen)
-        XCTAssertEqual(bounds, CGRect(x: 0, y: 0, width: 1720, height: 880))
-        let hit = PetMotion.step(.init(position: CGPoint(x: 1710, y: 400), velocity: CGVector(dx: 3000, dy: 0)), seconds: 1 / 60, bounds: bounds)
-        XCTAssertEqual(hit?.position.x, 1720)
-        XCTAssertLessThan(hit?.velocity.dx ?? 0, 0)
-        var fling: PetMotion.Fling? = .init(position: CGPoint(x: 500, y: 400), velocity: CGVector(dx: 1350, dy: 0))
+    private let bounds = PetMotion.flingBounds(petSize: CGSize(width: 200, height: 160), screen: CGRect(x: 0, y: 0, width: 1920, height: 1040))
+
+    private func settle(_ start: PetMotion.Fling) -> (last: PetMotion.Fling, steps: Int) {
+        var fling: PetMotion.Fling? = start
+        var last = start
         var steps = 0
         while let current = fling, steps < 1000 {
+            last = current
             fling = PetMotion.step(current, seconds: 1 / 60, bounds: bounds)
             steps += 1
         }
-        XCTAssertLessThan(steps, 120)
+        XCTAssertNil(fling)
+        return (last, steps)
+    }
+
+    func testAThrowArcsDownAndRestsOnTheFloor() {
+        XCTAssertEqual(bounds, CGRect(x: 0, y: 0, width: 1720, height: 880))
+        let (last, steps) = settle(.init(position: CGPoint(x: 500, y: 700), velocity: CGVector(dx: 1500, dy: 600)))
+        XCTAssertLessThan(steps, 8 * 60)
+        XCTAssertEqual(last.position.y, 0, accuracy: 1)
+    }
+
+    func testWallsCeilingAndFloorBounce() {
+        let wall = PetMotion.step(.init(position: CGPoint(x: 1710, y: 400), velocity: CGVector(dx: 3000, dy: 0)), seconds: 1 / 60, bounds: bounds)
+        XCTAssertEqual(wall?.position.x, 1720)
+        XCTAssertEqual(wall?.velocity.dx ?? 0, -3000 * PetMotion.restitution, accuracy: 0.01)
+        let slow = PetMotion.step(.init(position: CGPoint(x: 1719.5, y: 400), velocity: CGVector(dx: 40, dy: 0)), seconds: 1 / 60, bounds: bounds)
+        XCTAssertEqual(slow?.velocity.dx, 0)
+        let ceiling = PetMotion.step(.init(position: CGPoint(x: 500, y: 875), velocity: CGVector(dx: 0, dy: 3000)), seconds: 1 / 60, bounds: bounds)
+        XCTAssertEqual(ceiling?.position.y, 880)
+        XCTAssertLessThan(ceiling?.velocity.dy ?? 0, 0)
+        let floor = PetMotion.step(.init(position: CGPoint(x: 500, y: 5), velocity: CGVector(dx: 0, dy: -3000)), seconds: 1 / 60, bounds: bounds)
+        XCTAssertEqual(floor?.position.y, 0)
+        XCTAssertGreaterThan(floor?.velocity.dy ?? 0, 0)
+    }
+
+    func testADropFallsWithoutBouncing() {
+        var fling: PetMotion.Fling? = .init(position: CGPoint(x: 500, y: 780), velocity: .zero, bouncy: false)
+        var heights: [CGFloat] = []
+        while let current = fling {
+            heights.append(current.position.y)
+            fling = PetMotion.step(current, seconds: 1 / 60, bounds: bounds)
+        }
+        XCTAssertEqual(heights, heights.sorted(by: >))
+        XCTAssertEqual(heights.last, 0)
+        XCTAssertNil(PetMotion.step(.init(position: CGPoint(x: 500, y: 0), velocity: .zero, bouncy: false), seconds: 1 / 60, bounds: bounds))
     }
 
     func testAClickSquashesThenSpringsBack() {

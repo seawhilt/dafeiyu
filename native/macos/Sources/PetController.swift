@@ -907,6 +907,12 @@ final class PetController: NSObject {
             contentView?.needsDisplay = true
             return
         }
+        if dropGravity && !reducedMotion {
+            // 静止放手下落: fall to the floor without bouncing.
+            fling = PetMotion.Fling(position: CGPoint(x: petX, y: petY), velocity: .zero, bouncy: false)
+            contentView?.needsDisplay = true
+            return
+        }
         reportDrop()
         saveLayout()
         updateClickThrough()

@@ -138,22 +138,31 @@ def tilt_allowance(pet_size: tuple[int, int]) -> int:
     return max(0, ceil((turned - height) / 2))
 
 
-# A released drag keeps flying when the pointer was still moving fast.
-FLING_MIN_SPEED = 900.0  # px/s over the last moment of the drag
-# Top release speed per 「甩出力度」 choice; same numbers as dsh-pet-indesktop.
+# A released drag keeps flying when the pointer was still moving fast, falls
+# under gravity, bounces off the screen edges and comes to rest on the floor.
+# Numbers from dsh-pet-indesktop (pet/physics.py).
+FLING_MIN_SPEED = 500.0  # px/s; a slower release just lets go
+# Top release speed per 「甩出力度」 choice.
 THROW_STRENGTH_CAPS = {"gentle": 3600.0, "standard": 4800.0, "strong": 7200.0, "crazy": 9000.0}
 FLING_MAX_SPEED = THROW_STRENGTH_CAPS["standard"]
-FLING_STOP_SPEED = 60.0
-FLING_FRICTION = 4.0  # per second; speed falls to ~2% within one second
-FLING_BOUNCE = 0.45  # share of speed kept when hitting a screen edge
+FLING_GRAVITY = 1400.0  # px/s², toward the floor
+FLING_RESTITUTION = 0.68  # share of speed kept when hitting an edge
+FLING_GROUND_FRICTION = 2.5  # per second, while sliding on the floor
+FLING_FLOOR_STOP_SPEED = 120.0  # a landing slower than this does not bounce
+FLING_WALL_STOP_SPEED = 60.0  # a wall hit slower than this stops instead of bouncing
+FLING_REST_SPEED = 15.0  # on the floor and slower than this: at rest
 FLING_SAMPLE_WINDOW_S = 0.08
 
 
 class Fling(NamedTuple):
+    """A pet in flight. Screen y grows downward; the floor is the bottom."""
+
     x: float
     y: float
     vx: float
     vy: float
+    # A drop (「静止放手下落」) lands without bouncing.
+    bouncy: bool = True
 
 
 def fling_velocity(
@@ -182,24 +191,26 @@ def fling_bounds(pet_size: tuple[int, int], screen: tuple[int, int, int, int]) -
     return left, top, left + max(0, width - pet_size[0]), top + max(0, height - pet_size[1])
 
 
-def _bounce(position: float, speed: float, low: float, high: float) -> tuple[float, float]:
-    if position < low:
-        return low, abs(speed) * FLING_BOUNCE
-    if position > high:
-        return high, -abs(speed) * FLING_BOUNCE
-    return position, speed
-
-
 def fling_step(fling: Fling, seconds: float, bounds: tuple[int, int, int, int]) -> Fling | None:
-    """Advance a throw by `seconds`; None once it has come to rest."""
-    decay = exp(-FLING_FRICTION * seconds)
-    vx, vy = fling.vx * decay, fling.vy * decay
-    left, top, right, bottom = bounds
-    x, vx = _bounce(fling.x + vx * seconds, vx, left, right)
-    y, vy = _bounce(fling.y + vy * seconds, vy, top, bottom)
-    if hypot(vx, vy) < FLING_STOP_SPEED:
-        return None
-    return Fling(x, y, vx, vy)
+    """Advance a throw or drop by `seconds`; None once it rests on the floor."""
+    left, top, right, floor = bounds
+    vx, vy = fling.vx, fling.vy + FLING_GRAVITY * seconds
+    x, y = fling.x + vx * seconds, fling.y + vy * seconds
+    if x < left or x > right:
+        x = min(max(x, left), right)
+        speed = 0.0 if abs(vx) < FLING_WALL_STOP_SPEED else abs(vx) * FLING_RESTITUTION
+        vx = speed if x == left else -speed
+    if y < top:
+        y, vy = top, abs(vy) * FLING_RESTITUTION
+    elif y >= floor:
+        y = floor
+        vx *= max(0.0, 1.0 - FLING_GROUND_FRICTION * seconds)
+        vy = 0.0 if not fling.bouncy or abs(vy) < FLING_FLOOR_STOP_SPEED else -abs(vy) * FLING_RESTITUTION
+        # Rest only once already on the floor, so the caller has moved the
+        # pet onto it first.
+        if vy == 0.0 and abs(vx) < FLING_REST_SPEED and fling.y >= floor:
+            return None
+    return Fling(x, y, vx, vy, fling.bouncy)
 
 
 # A click squashes the pet at its feet and lets it spring back.

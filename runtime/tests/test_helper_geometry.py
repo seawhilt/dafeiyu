@@ -65,20 +65,29 @@ class HelperGeometryTests(unittest.TestCase):
                                 window._tick()
                             assert_anchor(expected)
                         window.grab()  # Painting must use the same rectangle as hit testing.
-                    # A thrown pet flies on, bounces off the right edge, comes
-                    # to rest on screen and is saved where it landed.
+                    # A thrown pet flies on, bounces off the right edge, falls,
+                    # comes to rest on the floor and is saved where it landed.
+                    pet_width, pet_height = window._pet_size()
                     window._move_to_pet(1200, 400)
                     window.fling = Fling(1200.0, 400.0, 3000.0, -200.0)
-                    for _ in range(300):
+                    for _ in range(1000):
                         if window.fling is None:
                             break
                         window.last_tick_ms -= 16
                         window._tick()
                     self.assertIsNone(window.fling)
-                    pet_width, _ = window._pet_size()
                     self.assertLess(window.pet_x, 1920 - pet_width, 'it bounced back off the edge')
-                    self.assertGreater(window.pet_x, 1200)
+                    self.assertEqual(window.pet_y, 1040 - pet_height, 'it rests on the floor')
                     self.assertEqual((window.layout['petX'], window.layout['petY']), (window.pet_x, window.pet_y))
+                    # 静止放手下落 drops straight down without bouncing.
+                    window._move_to_pet(600, 100)
+                    window.fling = Fling(600.0, 100.0, 0.0, 0.0, bouncy=False)
+                    for _ in range(200):
+                        if window.fling is None:
+                            break
+                        window.last_tick_ms -= 16
+                        window._tick()
+                    self.assertEqual((window.pet_x, window.pet_y), (600, 1040 - pet_height))
                     # Display and motion settings from the daemon apply at once.
                     message('config', petOpacity=55, playbackSpeed=2.0, powerSaving=True, lockPosition=True,
                             throwStrength='crazy', dragPhysics=False)

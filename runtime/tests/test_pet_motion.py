@@ -2,6 +2,7 @@ import unittest
 
 from runtime.pet_geometry import (
     FLING_MAX_SPEED,
+    FLING_RESTITUTION,
     THROW_STRENGTH_CAPS,
     FLING_MIN_SPEED,
     FLING_SAMPLE_WINDOW_S,
@@ -28,6 +29,7 @@ class FlingVelocityTests(unittest.TestCase):
     def test_a_slow_drag_just_drops(self) -> None:
         samples = [(100.0, 500.0, 1.00), (110.0, 500.0, 1.04)]
         self.assertIsNone(fling_velocity(samples, now=1.05))
+        self.assertEqual(FLING_MIN_SPEED, 500.0)
 
     def test_holding_still_before_letting_go_just_drops(self) -> None:
         samples = [(100.0, 500.0, 1.00), (190.0, 500.0, 1.04)]
@@ -60,30 +62,49 @@ class FlingVelocityTests(unittest.TestCase):
 
 
 class FlingStepTests(unittest.TestCase):
+    """Screen y grows downward here (Qt); the floor is the bottom bound."""
+
+    def settle(self, fling: Fling, limit: int = 600) -> tuple[Fling, int]:
+        bounds = fling_bounds(PET, SCREEN)
+        last, steps = fling, 0
+        current: Fling | None = fling
+        while current is not None and steps < limit:
+            last = current
+            current = fling_step(current, 1 / 60, bounds)
+            steps += 1
+        self.assertIsNone(current, "the throw comes to rest")
+        return last, steps
+
     def test_the_pet_stays_fully_on_screen(self) -> None:
         self.assertEqual(fling_bounds(PET, SCREEN), (0, 0, 1720, 880))
         self.assertEqual(fling_bounds((3000, 3000), SCREEN), (0, 0, 0, 0))
 
-    def test_a_throw_slows_down_and_settles(self) -> None:
-        fling = Fling(500.0, 400.0, FLING_MIN_SPEED * 1.5, 0.0)
-        steps = 0
-        while fling is not None and steps < 1000:
-            last = fling
-            fling = fling_step(fling, 1 / 60, fling_bounds(PET, SCREEN))
-            steps += 1
-        self.assertIsNone(fling)
-        self.assertLess(steps, 120, "a throw ends within about two seconds")
+    def test_a_throw_arcs_down_and_lands_on_the_floor(self) -> None:
+        last, steps = self.settle(Fling(500.0, 200.0, 1500.0, -600.0))
+        self.assertLess(steps, 8 * 60, "comes to rest within eight seconds")
+        self.assertAlmostEqual(last.y, 880.0, delta=1, msg="rests on the floor")
         self.assertGreater(last.x, 500.0)
 
-    def test_the_pet_bounces_off_a_screen_edge(self) -> None:
+    def test_gravity_pulls_a_flying_pet_down(self) -> None:
+        bounds = fling_bounds(PET, SCREEN)
+        fling = fling_step(Fling(500.0, 300.0, 0.0, -100.0), 0.5, bounds)
+        assert fling is not None
+        self.assertGreater(fling.vy, 0.0, "falling after half a second")
+
+    def test_the_pet_bounces_off_a_wall_and_keeps_some_speed(self) -> None:
         bounds = fling_bounds(PET, SCREEN)
         fling = fling_step(Fling(1710.0, 400.0, 3000.0, 0.0), 1 / 60, bounds)
         assert fling is not None
         self.assertEqual(fling.x, 1720.0)
-        self.assertLess(fling.vx, 0.0)
-        self.assertLess(abs(fling.vx), 3000.0 * 0.6, "a bounce loses most of its speed")
+        self.assertAlmostEqual(fling.vx, -3000.0 * FLING_RESTITUTION)
 
-    def test_the_pet_bounces_off_the_top_and_bottom_too(self) -> None:
+    def test_a_slow_wall_hit_stops_instead_of_sticking_and_bouncing(self) -> None:
+        bounds = fling_bounds(PET, SCREEN)
+        fling = fling_step(Fling(1719.5, 400.0, 40.0, 0.0), 1 / 60, bounds)
+        assert fling is not None
+        self.assertEqual(fling.vx, 0.0)
+
+    def test_the_floor_and_ceiling_bounce(self) -> None:
         bounds = fling_bounds(PET, SCREEN)
         up = fling_step(Fling(500.0, 5.0, 0.0, -3000.0), 1 / 60, bounds)
         assert up is not None
@@ -93,6 +114,21 @@ class FlingStepTests(unittest.TestCase):
         assert down is not None
         self.assertEqual(down.y, 880.0)
         self.assertLess(down.vy, 0.0)
+
+    def test_a_drop_falls_and_lands_without_bouncing(self) -> None:
+        bounds = fling_bounds(PET, SCREEN)
+        current: Fling | None = Fling(500.0, 100.0, 0.0, 0.0, bouncy=False)
+        heights = []
+        while current is not None:
+            heights.append(current.y)
+            current = fling_step(current, 1 / 60, bounds)
+        self.assertEqual(heights, sorted(heights), "only ever goes down")
+        # 780 px under 1400 px/s² takes about 1.06 s.
+        self.assertLess(len(heights), 70)
+
+    def test_letting_go_on_the_floor_ends_at_once(self) -> None:
+        bounds = fling_bounds(PET, SCREEN)
+        self.assertIsNone(fling_step(Fling(500.0, 880.0, 0.0, 0.0, bouncy=False), 1 / 60, bounds))
 
 
 class SquashTests(unittest.TestCase):

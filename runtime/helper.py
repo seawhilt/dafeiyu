@@ -1502,11 +1502,14 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                     )
                     self._finish_drag()
                     self._move_to_pet(self.pet_x, self.pet_y)
-                    if velocity is None:
+                    if velocity is not None:
+                        self.fling = Fling(float(self.pet_x), float(self.pet_y), *velocity)
+                    elif self.drop_gravity and not self.reduced_motion:
+                        # 静止放手下落: fall to the floor without bouncing.
+                        self.fling = Fling(float(self.pet_x), float(self.pet_y), 0.0, 0.0, bouncy=False)
+                    else:
                         self._report_drop()
                         self._save_layout()
-                    else:
-                        self.fling = Fling(float(self.pet_x), float(self.pet_y), *velocity)
                 else:
                     self._play_click_interaction(event.position().x(), event.position().y())
             self.drag_origin = None

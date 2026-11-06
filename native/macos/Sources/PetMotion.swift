@@ -3,19 +3,27 @@ import Foundation
 
 /// Throwing and click squash, kept in step with runtime/pet_geometry.py.
 enum PetMotion {
-    /// A released drag keeps flying when the pointer was still moving fast.
-    static let flingMinSpeed: CGFloat = 900  // points/s over the last moment of the drag
+    /// A released drag keeps flying when the pointer was still moving fast,
+    /// falls under gravity, bounces off the screen edges and comes to rest on
+    /// the floor. Numbers from dsh-pet-indesktop (pet/physics.py).
+    static let flingMinSpeed: CGFloat = 500  // points/s; a slower release just lets go
     /// Top release speed per 「甩出力度」 choice; same as runtime/pet_geometry.py.
     static let throwStrengthCaps: [String: CGFloat] = ["gentle": 3600, "standard": 4800, "strong": 7200, "crazy": 9000]
     static let flingMaxSpeed: CGFloat = 4800
-    static let flingStopSpeed: CGFloat = 60
-    static let flingFriction: CGFloat = 4  // per second
-    static let flingBounce: CGFloat = 0.45  // share of speed kept at a screen edge
+    static let gravity: CGFloat = 1400  // points/s², toward the floor
+    static let restitution: CGFloat = 0.68  // share of speed kept when hitting an edge
+    static let groundFriction: CGFloat = 2.5  // per second, while sliding on the floor
+    static let floorStopSpeed: CGFloat = 120  // a landing slower than this does not bounce
+    static let wallStopSpeed: CGFloat = 60  // a wall hit slower than this stops instead of bouncing
+    static let restSpeed: CGFloat = 15  // on the floor and slower than this: at rest
     static let flingSampleWindow: CFTimeInterval = 0.08
 
+    /// A pet in flight. AppKit's y grows upward, so the floor is `minY`.
     struct Fling: Equatable {
         var position: CGPoint
         var velocity: CGVector
+        /// A drop (「静止放手下落」) lands without bouncing.
+        var bouncy = true
     }
 
     struct Sample {
@@ -47,21 +55,29 @@ enum PetMotion {
         )
     }
 
-    private static func bounce(_ position: CGFloat, _ speed: CGFloat, _ low: CGFloat, _ high: CGFloat) -> (CGFloat, CGFloat) {
-        if position < low { return (low, abs(speed) * flingBounce) }
-        if position > high { return (high, -abs(speed) * flingBounce) }
-        return (position, speed)
-    }
-
-    /// Advance a throw by `seconds`; nil once it has come to rest.
+    /// Advance a throw or drop by `seconds`; nil once it rests on the floor.
     static func step(_ fling: Fling, seconds: CGFloat, bounds: CGRect) -> Fling? {
-        let decay = exp(-flingFriction * seconds)
-        let vx = fling.velocity.dx * decay
-        let vy = fling.velocity.dy * decay
-        let (x, nextVX) = bounce(fling.position.x + vx * seconds, vx, bounds.minX, bounds.maxX)
-        let (y, nextVY) = bounce(fling.position.y + vy * seconds, vy, bounds.minY, bounds.maxY)
-        guard hypot(nextVX, nextVY) >= flingStopSpeed else { return nil }
-        return Fling(position: CGPoint(x: x, y: y), velocity: CGVector(dx: nextVX, dy: nextVY))
+        var vx = fling.velocity.dx
+        var vy = fling.velocity.dy - gravity * seconds
+        var x = fling.position.x + vx * seconds
+        var y = fling.position.y + vy * seconds
+        if x < bounds.minX || x > bounds.maxX {
+            x = min(max(x, bounds.minX), bounds.maxX)
+            let speed = abs(vx) < wallStopSpeed ? 0 : abs(vx) * restitution
+            vx = x == bounds.minX ? speed : -speed
+        }
+        if y > bounds.maxY {
+            y = bounds.maxY
+            vy = -abs(vy) * restitution
+        } else if y <= bounds.minY {
+            y = bounds.minY
+            vx *= max(0, 1 - groundFriction * seconds)
+            vy = !fling.bouncy || abs(vy) < floorStopSpeed ? 0 : abs(vy) * restitution
+            // Rest only once already on the floor, so the caller has moved
+            // the pet onto it first.
+            if vy == 0 && abs(vx) < restSpeed && fling.position.y <= bounds.minY { return nil }
+        }
+        return Fling(position: CGPoint(x: x, y: y), velocity: CGVector(dx: vx, dy: vy), bouncy: fling.bouncy)
     }
 
     /// A click squashes the pet at its feet and lets it spring back.
