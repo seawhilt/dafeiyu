@@ -26,6 +26,10 @@ DEFAULT_LAYOUT: dict[str, Any] = {
     "coordinateSpace": "qt-top-left",
 }
 
+# Same limits as src/core/pet-settings.js and the Swift helper.
+SCALE_MIN, SCALE_MAX = 0.5, 1.4
+BUBBLE_SCALE_MIN, BUBBLE_SCALE_MAX = 0.5, 3.0
+
 QT_COORDINATE_SPACE = "qt-top-left"
 APPKIT_COORDINATE_SPACE = "appkit-bottom-left"
 
@@ -89,10 +93,10 @@ def normalise_layout(value: Any) -> dict[str, Any]:
             layout[key] = coordinate
     scale = value.get("scale")
     if isinstance(scale, (int, float)) and not isinstance(scale, bool):
-        layout["scale"] = min(1.4, max(0.55, float(scale)))
+        layout["scale"] = min(SCALE_MAX, max(SCALE_MIN, float(scale)))
     bubble_scale = value.get("bubbleScale")
     if isinstance(bubble_scale, (int, float)) and not isinstance(bubble_scale, bool):
-        layout["bubbleScale"] = min(1.2, max(0.8, float(bubble_scale)))
+        layout["bubbleScale"] = min(BUBBLE_SCALE_MAX, max(BUBBLE_SCALE_MIN, float(bubble_scale)))
     if isinstance(value.get("reducedMotion"), bool):
         layout["reducedMotion"] = value["reducedMotion"]
     if value.get("bubbleMode") in {"auto", "always", "hidden", "custom"}:

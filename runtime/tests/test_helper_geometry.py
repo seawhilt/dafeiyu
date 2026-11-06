@@ -79,6 +79,21 @@ class HelperGeometryTests(unittest.TestCase):
                     self.assertLess(window.pet_x, 1920 - pet_width, 'it bounced back off the edge')
                     self.assertGreater(window.pet_x, 1200)
                     self.assertEqual((window.layout['petX'], window.layout['petY']), (window.pet_x, window.pet_y))
+                    # Display and motion settings from the daemon apply at once.
+                    message('config', petOpacity=55, playbackSpeed=2.0, powerSaving=True, lockPosition=True,
+                            throwStrength='crazy', dragPhysics=False)
+                    self.assertEqual(window.pet_opacity, 55)
+                    self.assertEqual((window.playback_speed, window.throw_strength), (2.0, 'crazy'))
+                    self.assertFalse(window.drag_physics)
+                    normal = window._animation_interval_ms()
+                    window.last_touch -= 60
+                    self.assertTrue(window._saving_power())
+                    self.assertGreater(window._animation_interval_ms(), normal, 'power saving halves the frame rate')
+                    message('config', playbackSpeed=1.3, petOpacity=5)
+                    self.assertEqual(window.playback_speed, 2.0, 'only listed speeds are taken')
+                    self.assertEqual(window.pet_opacity, 10)
+                    message('config', powerSaving=False, lockPosition=False, dragPhysics=True, playbackSpeed=1.0,
+                            petOpacity=100)
                     # A click squash paints without moving the anchor.
                     anchor = (window.pet_x, window.pet_y)
                     window.squash_started = time.monotonic()

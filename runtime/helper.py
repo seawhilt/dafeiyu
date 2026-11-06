@@ -20,19 +20,25 @@ from typing import Any, TextIO
 
 try:
     from .animation_model import Player, crossfade_duration
-    from .layout_store import appkit_to_qt_y, default_layout_path, load_layout, pet_position_from_layout, save_layout
+    from .layout_store import (
+        BUBBLE_SCALE_MAX, BUBBLE_SCALE_MIN, SCALE_MAX, SCALE_MIN, appkit_to_qt_y, default_layout_path, load_layout,
+        pet_position_from_layout, save_layout,
+    )
     from .asset_paths import bundle_root
     from .pet_geometry import (
-        Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step, fling_velocity,
-        position_window, screen_outer_edges, squash_scale, tilt_allowance, tilt_for_speed,
+        THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step,
+        fling_velocity, position_window, screen_outer_edges, squash_scale, tilt_allowance, tilt_for_speed,
     )
 except ImportError:
     from animation_model import Player, crossfade_duration
-    from layout_store import appkit_to_qt_y, default_layout_path, load_layout, pet_position_from_layout, save_layout
+    from layout_store import (
+        BUBBLE_SCALE_MAX, BUBBLE_SCALE_MIN, SCALE_MAX, SCALE_MIN, appkit_to_qt_y, default_layout_path, load_layout,
+        pet_position_from_layout, save_layout,
+    )
     from asset_paths import bundle_root
     from pet_geometry import (
-        Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step, fling_velocity,
-        position_window, screen_outer_edges, squash_scale, tilt_allowance, tilt_for_speed,
+        THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step,
+        fling_velocity, position_window, screen_outer_edges, squash_scale, tilt_allowance, tilt_for_speed,
     )
 
 
@@ -41,6 +47,13 @@ PROTOCOL_VERSION = 1
 # throw may advance at once.
 DRAG_SAMPLE_KEEP_S = 0.2
 FLING_MAX_TICK_MS = 50
+# Right-click size choices, labelled by the 640 px source canvas at that scale
+# like the settings page; and bubble text sizes.
+SIZE_MENU = (("320 px", 0.5), ("461 px", 0.72), ("544 px", 0.85), ("640 px", 1.0))
+BUBBLE_SIZE_MENU = (("80%", 0.8), ("100%", 1.0), ("150%", 1.5), ("200%", 2.0))
+PLAYBACK_SPEEDS = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)
+# 省电模式: after this long without touching the pet, frames advance at half rate.
+POWER_SAVING_IDLE_S = 30.0
 STATES = {"IDLE", "THINKING", "WORKING", "WAITING", "SUCCESS", "ERROR", "DISCONNECTED"}
 # Speech bubble in dsh-pet's style: a white rounded bubble whose tail points
 # at the pet's head. Short lines shrink the bubble to fit.
@@ -392,13 +405,13 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.layout = load_layout(self.layout_path)
             configured_scale = os.environ.get("DAFEIYU_SCALE")
             try:
-                self.scale = min(1.4, max(0.55, float(configured_scale))) if configured_scale else self.layout["scale"]
+                self.scale = min(SCALE_MAX, max(SCALE_MIN, float(configured_scale))) if configured_scale else self.layout["scale"]
             except ValueError:
                 self.scale = self.layout["scale"]
             configured_bubble_scale = os.environ.get("DAFEIYU_BUBBLE_SCALE")
             try:
                 self.bubble_scale = (
-                    min(1.2, max(0.8, float(configured_bubble_scale)))
+                    min(BUBBLE_SCALE_MAX, max(BUBBLE_SCALE_MIN, float(configured_bubble_scale)))
                     if configured_bubble_scale
                     else self.layout["bubbleScale"]
                 )
@@ -490,6 +503,21 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.fling: Fling | None = None
             # When the last click squash started (monotonic seconds).
             self.squash_started: float | None = None
+            # Display and motion settings from the daemon.
+            self.pet_opacity = 100
+            self.playback_speed = 1.0
+            self.power_saving = False
+            self.last_touch = time.monotonic()
+            self.drag_physics = True
+            self.throw_strength = "standard"
+            self.lock_position = False
+            self.shift_drag = False
+            self.slingshot = True
+            self.drop_gravity = False
+            self.edge_probe = True
+            self.no_move = False
+            # Whether the current press may move the pet (locked / SHIFT-only).
+            self.drag_allowed = True
             self.last_tick_ms = self._now_ms()
             # Whether the last tick painted the bubble; a time-based status or
             # overlay expiry changes the visible card without a message.
@@ -602,10 +630,10 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self.whisper_level = message["whisperLevel"]
             scale = message.get("scale")
             if isinstance(scale, (int, float)) and not isinstance(scale, bool):
-                self.scale = min(1.4, max(0.55, float(scale)))
+                self.scale = min(SCALE_MAX, max(SCALE_MIN, float(scale)))
             bubble_scale = message.get("bubbleScale")
             if isinstance(bubble_scale, (int, float)) and not isinstance(bubble_scale, bool):
-                self.bubble_scale = min(1.2, max(0.8, float(bubble_scale)))
+                self.bubble_scale = min(BUBBLE_SCALE_MAX, max(BUBBLE_SCALE_MIN, float(bubble_scale)))
             reduced_motion = message.get("reducedMotion")
             if isinstance(reduced_motion, bool) and reduced_motion != self.reduced_motion:
                 self._set_reduced_motion(reduced_motion)
@@ -621,8 +649,27 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             bubble_states = message.get("bubbleStates")
             if isinstance(bubble_states, list):
                 self.bubble_states = [str(state) for state in bubble_states if isinstance(state, str)]
+            self._apply_motion_config(message)
             self._sync_bubble_size()
             self._save_layout()
+
+        def _apply_motion_config(self, message: dict[str, Any]) -> None:
+            opacity = message.get("petOpacity")
+            if isinstance(opacity, (int, float)) and not isinstance(opacity, bool):
+                self.pet_opacity = int(min(100, max(10, opacity)))
+                self.setWindowOpacity(self.pet_opacity / 100)
+            speed = message.get("playbackSpeed")
+            if speed in PLAYBACK_SPEEDS and not isinstance(speed, bool):
+                self.playback_speed = float(speed)
+            if message.get("throwStrength") in THROW_STRENGTH_CAPS:
+                self.throw_strength = message["throwStrength"]
+            for key, attribute in (
+                ("powerSaving", "power_saving"), ("dragPhysics", "drag_physics"), ("lockPosition", "lock_position"),
+                ("shiftDrag", "shift_drag"), ("slingshot", "slingshot"), ("dropGravity", "drop_gravity"),
+                ("edgeProbe", "edge_probe"), ("noMove", "no_move"),
+            ):
+                if isinstance(message.get(key), bool):
+                    setattr(self, attribute, message[key])
 
         def _apply_glove(self, closed: bool) -> None:
             """Closed fist while the button is held, open hand otherwise.
@@ -647,8 +694,20 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
         def _animation_interval_ms(self) -> int:
             if self.reduced_motion:
                 return 40
+            if self._saving_power():
+                # Every tick then advances two frames: half the frame rate.
+                return round(self.model.active_clip.frame_ms * 2 / self.playback_speed)
             # Sub-frame poll: a once-per-frame timer turns one early delivery into a whole-frame hitch.
-            return max(8, min(20, round(self.model.active_clip.frame_ms / 3)))
+            return max(8, min(20, round(self.model.active_clip.frame_ms / 3 / self.playback_speed)))
+
+        def _saving_power(self) -> bool:
+            return (
+                self.power_saving
+                and not self.dragging
+                and self.fling is None
+                and self.squash_started is None
+                and time.monotonic() - self.last_touch > POWER_SAVING_IDLE_S
+            )
 
         def _rearm_animation_interval(self) -> None:
             wanted = self._animation_interval_ms()
@@ -705,7 +764,8 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             was_bubble_visible = self.last_tick_bubble_visible
             # The daemon decides what follows each pass; report it. A docked
             # pet holds still.
-            ended = None if self.dock_edge else self.model.advance(0 if self.reduced_motion else elapsed_ms)
+            ended = None if self.dock_edge else self.model.advance(
+                0 if self.reduced_motion else round(elapsed_ms * self.playback_speed))
             if ended is not None:
                 emit_reply("pass", clip=ended)
             self._ease_tilt()
@@ -1191,7 +1251,7 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
         def _bubble_font(self, point_size: float, bold: bool) -> QFont:
             font = QFont()
             font.setFamilies(BUBBLE_FONT_FAMILIES)
-            font.setPointSizeF(point_size * min(1.2, max(1.0, self.bubble_scale)))
+            font.setPointSizeF(point_size * self.bubble_scale)
             font.setWeight(QFont.Weight.Bold if bold else QFont.Weight.Medium)
             return font
 
@@ -1415,13 +1475,16 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 if self.fling is not None:
                     # Catching a thrown pet lands it where it is.
                     self._land_fling()
+                self.last_touch = time.monotonic()
+                shift_held = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                self.drag_allowed = not self.lock_position and (shift_held or not self.shift_drag)
                 self._apply_glove(True)
                 self.drag_origin = event.globalPosition().toPoint()
                 self.pet_origin = QPoint(self.pet_x, self.pet_y)
                 self.dragging = False
 
         def mouseMoveEvent(self, event: QMouseEvent) -> None:
-            if self.drag_origin is not None and self.pet_origin is not None:
+            if self.drag_origin is not None and self.pet_origin is not None and self.drag_allowed:
                 if not self.dragging and (event.globalPosition().toPoint() - self.drag_origin).manhattanLength() > 5:
                     self._begin_drag()
                 delta = event.globalPosition().toPoint() - self.drag_origin
@@ -1432,7 +1495,11 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
         def mouseReleaseEvent(self, event: QMouseEvent) -> None:
             if event.button() == Qt.MouseButton.LeftButton:
                 if self.dragging:
-                    velocity = None if self.reduced_motion else fling_velocity(self.drag_samples, time.monotonic())
+                    velocity = (
+                        fling_velocity(self.drag_samples, time.monotonic(), THROW_STRENGTH_CAPS[self.throw_strength])
+                        if self.drag_physics and not self.reduced_motion
+                        else None
+                    )
                     self._finish_drag()
                     self._move_to_pet(self.pet_x, self.pet_y)
                     if velocity is None:
@@ -1476,14 +1543,14 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             menu = QMenu(self)
             size_menu = menu.addMenu("大小")
             size_actions = {}
-            for label, scale in (("小", 0.6), ("中", 0.8), ("大", 1.0), ("特大", 1.25)):
+            for label, scale in SIZE_MENU:
                 action = size_menu.addAction(label)
                 action.setCheckable(True)
                 action.setChecked(abs(self.scale - scale) < 0.05)
                 size_actions[action] = scale
-            bubble_size_menu = menu.addMenu("气泡大小")
+            bubble_size_menu = menu.addMenu("气泡文字大小")
             bubble_size_actions = {}
-            for label, bubble_scale in (("小", 0.8), ("标准", 1.0), ("大", 1.2)):
+            for label, bubble_scale in BUBBLE_SIZE_MENU:
                 action = bubble_size_menu.addAction(label)
                 action.setCheckable(True)
                 action.setChecked(abs(self.bubble_scale - bubble_scale) < 0.05)

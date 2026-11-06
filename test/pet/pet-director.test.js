@@ -177,3 +177,13 @@ test('an unknown edge does not dock', () => {
   assert.equal(director.docked, null)
   assert.equal(plays().at(-1), 'dragging_release')
 })
+
+test('the action gap adds its seconds to the rest between idle actions', () => {
+  const { director, timers } = setup()
+  director.observe(state('IDLE'))
+  const base = timers.pending.at(-1).ms
+  director.observe(createMessage('config', { animationGap: 12.5 }))
+  assert.equal(timers.pending.at(-1).ms, base + 12500)
+  director.observe(createMessage('config', { animationGap: -3 }))
+  assert.equal(timers.pending.at(-1).ms, base, 'a bad value counts as no gap')
+})

@@ -5,7 +5,8 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { bubbleTextView } from '../core/bubble-text.js'
 import { CODEX_PREVIEW, codexSheet, installPetdexPet, listCharacters } from '../pet/characters.js'
-import { sanitizeSettings } from './store.js'
+import { PET_MOTION_SETTINGS, sanitizeSettings } from './store.js'
+import { PLAYBACK_SPEEDS, SCALE_STEPS, scaleLabel } from '../core/pet-settings.js'
 import { isProviderId } from '../hub/provider-hub.js'
 import { hookSource } from '../providers/registry.js'
 
@@ -17,6 +18,7 @@ const pkg = JSON.parse(readFileSync(resolve(packageRoot, 'package.json'), 'utf8'
 // Settings the page may change; everything else stays daemon-owned.
 export const EDITABLE_SETTINGS = Object.freeze([
   'scale', 'bubbleScale', 'activityLevel', 'reducedMotion', 'soundEnabled', 'bubbleMode', 'whisperLevel',
+  ...PET_MOTION_SETTINGS,
 ])
 
 /** The repository's latest GitHub Release, from package.json. */
@@ -99,6 +101,10 @@ export function createSettingsRoutes(ctx) {
       pid: process.pid,
       displayed: ctx.hub.state.displayed,
       settings: Object.fromEntries(EDITABLE_SETTINGS.map((key) => [key, settings[key]])),
+      options: {
+        scales: SCALE_STEPS.map((scale) => [scale, scaleLabel(scale)]),
+        playbackSpeeds: [...PLAYBACK_SPEEDS],
+      },
       sources: ctx.sources.list(),
       dsh: {
         packageDir: packageRoot,

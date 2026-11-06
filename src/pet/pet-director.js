@@ -32,6 +32,8 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
   let sentClip = null
   let reducedMotion = false
   let activityLevel = 'normal'
+  // Extra rest between idle actions, from the 「动作等待间隔」 setting.
+  let gapMs = 0
   let lastState = null
   let pulseTimer
   let microTimer
@@ -83,7 +85,7 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
     timers.clearTimeout(microTimer)
     if (stopped || docked || reducedMotion || model.baseState !== 'IDLE') return
     const [low, high] = model.idleInterval(activityLevel)
-    microTimer = later(low + Math.floor(random() * (high - low)), () => {
+    microTimer = later(low + Math.floor(random() * (high - low)) + gapMs, () => {
       if (model.playIdleMicro(Math.floor(random() * Math.max(1, model.idleMicroClips.length)))) play()
       else scheduleMicro()
     })
@@ -124,6 +126,9 @@ export function createPetDirector({ manifest, send, now = Date.now, random = Mat
         case CompanionMessageKind.CONFIG:
           if (typeof message.reducedMotion === 'boolean') reducedMotion = message.reducedMotion
           if (['quiet', 'normal', 'lively'].includes(message.activityLevel)) activityLevel = message.activityLevel
+          if (message.animationGap !== undefined) {
+            gapMs = Number.isFinite(message.animationGap) ? Math.max(0, message.animationGap) * 1000 : 0
+          }
           scheduleMicro()
           break
         case CompanionMessageKind.SAY: {

@@ -140,7 +140,9 @@ def tilt_allowance(pet_size: tuple[int, int]) -> int:
 
 # A released drag keeps flying when the pointer was still moving fast.
 FLING_MIN_SPEED = 900.0  # px/s over the last moment of the drag
-FLING_MAX_SPEED = 4000.0
+# Top release speed per 「甩出力度」 choice; same numbers as dsh-pet-indesktop.
+THROW_STRENGTH_CAPS = {"gentle": 3600.0, "standard": 4800.0, "strong": 7200.0, "crazy": 9000.0}
+FLING_MAX_SPEED = THROW_STRENGTH_CAPS["standard"]
 FLING_STOP_SPEED = 60.0
 FLING_FRICTION = 4.0  # per second; speed falls to ~2% within one second
 FLING_BOUNCE = 0.45  # share of speed kept when hitting a screen edge
@@ -154,7 +156,9 @@ class Fling(NamedTuple):
     vy: float
 
 
-def fling_velocity(samples: list[tuple[float, float, float]], now: float) -> tuple[float, float] | None:
+def fling_velocity(
+    samples: list[tuple[float, float, float]], now: float, max_speed: float = FLING_MAX_SPEED,
+) -> tuple[float, float] | None:
     """Release speed from (x, y, seconds) drag samples, or None for a plain drop."""
     if len(samples) < 2 or now - samples[-1][2] > FLING_SAMPLE_WINDOW_S:
         return None
@@ -168,7 +172,7 @@ def fling_velocity(samples: list[tuple[float, float, float]], now: float) -> tup
     speed = hypot(vx, vy)
     if speed < FLING_MIN_SPEED:
         return None
-    cap = min(1.0, FLING_MAX_SPEED / speed)
+    cap = min(1.0, max_speed / speed)
     return vx * cap, vy * cap
 
 

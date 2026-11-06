@@ -9,6 +9,8 @@ final class PetView: NSView {
     /// Mouse-to-window grab offset, captured at mouseDown, used for 1:1 drag.
     private var grabOffset: NSPoint?
     private var windowOrigin: NSPoint?
+    /// Whether this press may move the pet (锁定位置 / SHIFT+左键拖动).
+    private var dragAllowed = true
 
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
@@ -16,6 +18,7 @@ final class PetView: NSView {
     override func mouseDown(with event: NSEvent) {
         guard let window = window else { return }
         controller?.catchFling()
+        dragAllowed = controller?.canDrag(shiftHeld: event.modifierFlags.contains(.shift)) ?? true
         windowOrigin = window.frame.origin
         let mouse = NSEvent.mouseLocation
         grabOffset = NSPoint(x: mouse.x - window.frame.origin.x,
@@ -23,7 +26,7 @@ final class PetView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
-        guard let grabOffset = grabOffset,
+        guard dragAllowed, let grabOffset = grabOffset,
               let windowOrigin = windowOrigin,
               let window = window else { return }
         // Use absolute screen coordinates so the drag tracks the cursor 1:1.

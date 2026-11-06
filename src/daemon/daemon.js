@@ -18,6 +18,7 @@ import { loadWhisperLines, WhisperScheduler } from '../core/whisper.js'
 import {
   daemonPaths,
   loadSettings,
+  PET_MOTION_SETTINGS,
   readRuntime,
   saveSettings,
   writeRuntime,
@@ -91,6 +92,7 @@ function displaySettingsOf(settings) {
     bubbleMode: settings.bubbleMode,
     bubbleStates: settings.bubbleStates,
     whisperLevel: settings.whisperLevel,
+    ...Object.fromEntries(PET_MOTION_SETTINGS.map((key) => [key, settings[key]])),
   }
 }
 

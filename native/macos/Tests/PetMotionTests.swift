@@ -26,6 +26,14 @@ final class PetMotionTests: XCTestCase {
         XCTAssertEqual(velocity?.dx ?? 0, PetMotion.flingMaxSpeed, accuracy: 0.01)
     }
 
+    func testTheThrowStrengthSetsTheCap() {
+        let samples = [sample(0, 0, 1.00), sample(900, 0, 1.01)]
+        for (strength, cap) in PetMotion.throwStrengthCaps {
+            XCTAssertEqual(PetMotion.flingVelocity(samples, now: 1.01, maxSpeed: cap)?.dx ?? 0, cap, accuracy: 0.01, strength)
+        }
+        XCTAssertEqual(PetMotion.flingMaxSpeed, PetMotion.throwStrengthCaps["standard"])
+    }
+
     func testAThrowSlowsDownAndBouncesOffEdges() {
         let screen = CGRect(x: 0, y: 0, width: 1920, height: 1040)
         let bounds = PetMotion.flingBounds(petSize: CGSize(width: 200, height: 160), screen: screen)

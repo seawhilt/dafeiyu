@@ -136,6 +136,26 @@ final class PetController: NSObject {
     private var fling: PetMotion.Fling?
     /// When the last click squash started.
     private var squashStartedAt: CFTimeInterval?
+    /// Display and motion settings from the daemon.
+    private var petOpacity: Double = 100
+    private var playbackSpeed: Double = 1
+    private var powerSaving = false
+    private var lastTouch = CACurrentMediaTime()
+    private var dragPhysics = true
+    private var throwStrength = "standard"
+    private(set) var lockPosition = false
+    private(set) var shiftDrag = false
+    private var slingshot = true
+    private var dropGravity = false
+    private var edgeProbe = true
+    private var noMove = false
+    private static let playbackSpeeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4]
+    /// 省电模式: after this long without touching the pet, frames advance at half rate.
+    private static let powerSavingIdle: CFTimeInterval = 30
+    /// Right-click size choices, labelled by the 640 px source canvas at that
+    /// scale like the settings page; and bubble text sizes.
+    private static let sizeMenu: [(String, Double)] = [("320 px", 0.5), ("461 px", 0.72), ("544 px", 0.85), ("640 px", 1.0)]
+    private static let bubbleSizeMenu: [(String, Double)] = [("80%", 0.8), ("100%", 1.0), ("150%", 1.5), ("200%", 2.0)]
     private static let dragSampleKeep: CFTimeInterval = 0.2
     private static let flingMaxTickMs: Int = 50
     private static let tiltEasing: CGFloat = 0.2
@@ -315,7 +335,7 @@ final class PetController: NSObject {
     // Widest bubble; short lines shrink to fit their text.
     private var cardWidthPoints: CGFloat { 300 * bubbleScale }
 
-    private var bubbleFontScale: CGFloat { min(1.2, max(1.0, bubbleScale)) }
+    private var bubbleFontScale: CGFloat { CGFloat(bubbleScale) }
 
     /// Rounded display font: 上首软糖体 when it is installed, else SF Rounded.
     private func bubbleFont(size: CGFloat, weight: NSFont.Weight) -> NSFont {
@@ -541,8 +561,16 @@ final class PetController: NSObject {
 
     private var animationInterval: TimeInterval {
         if reducedMotion { return 0.04 }
+        let frameSeconds = Double(model.activeClip.frameMs) / 1000 / playbackSpeed
+        // Every tick then advances two frames: half the frame rate.
+        if savingPower { return frameSeconds * 2 }
         // Sub-frame poll: a once-per-frame timer turns one early delivery into a whole-frame hitch.
-        return min(0.02, max(0.008, Double(model.activeClip.frameMs) / 3000))
+        return min(0.02, max(0.008, frameSeconds / 3))
+    }
+
+    private var savingPower: Bool {
+        powerSaving && !dragging && fling == nil && squashStartedAt == nil
+            && CACurrentMediaTime() - lastTouch > Self.powerSavingIdle
     }
 
     private func startAnimTimer() {
@@ -612,7 +640,7 @@ final class PetController: NSObject {
         let wasBubbleVisible = lastTickBubbleVisible
         // The daemon decides what follows each pass; report it. A docked pet
         // holds still.
-        if dockEdge == nil, let ended = model.advance(elapsedMs: reducedMotion ? 0 : elapsed) {
+        if dockEdge == nil, let ended = model.advance(elapsedMs: reducedMotion ? 0 : Int((Double(elapsed) * playbackSpeed).rounded())) {
             report("pass", ["clip": ended])
         }
         easeTilt()
@@ -860,7 +888,10 @@ final class PetController: NSObject {
 
     func endDrag() {
         guard dragging else { return }
-        let velocity = reducedMotion ? nil : PetMotion.flingVelocity(dragSamples, now: CACurrentMediaTime())
+        let cap = PetMotion.throwStrengthCaps[throwStrength] ?? PetMotion.flingMaxSpeed
+        let velocity = dragPhysics && !reducedMotion
+            ? PetMotion.flingVelocity(dragSamples, now: CACurrentMediaTime(), maxSpeed: cap)
+            : nil
         dragSamples = []
         fadeFromFrame = nil
         dragging = false
@@ -963,10 +994,10 @@ final class PetController: NSObject {
         let menu = NSMenu(title: "大肥鱼")
 
         let sizeMenu = NSMenu(title: "大小")
-        for (label, value) in [("小", 0.6), ("中", 0.8), ("大", 1.0), ("特大", 1.25)] {
+        for (label, value) in Self.sizeMenu {
             let item = NSMenuItem(title: label, action: #selector(changeSize(_:)), keyEquivalent: "")
             item.target = self
-            item.tag = Int(value * 100)
+            item.tag = Int((value * 100).rounded())
             item.state = abs(scale - value) < 0.05 ? .on : .off
             sizeMenu.addItem(item)
         }
@@ -974,15 +1005,15 @@ final class PetController: NSObject {
         sizeItem.submenu = sizeMenu
         menu.addItem(sizeItem)
 
-        let bubbleMenu = NSMenu(title: "气泡大小")
-        for (label, value) in [("小", 0.8), ("标准", 1.0), ("大", 1.2)] {
+        let bubbleMenu = NSMenu(title: "气泡文字大小")
+        for (label, value) in Self.bubbleSizeMenu {
             let item = NSMenuItem(title: label, action: #selector(changeBubbleScale(_:)), keyEquivalent: "")
             item.target = self
-            item.tag = Int(value * 100)
+            item.tag = Int((value * 100).rounded())
             item.state = abs(bubbleScale - value) < 0.05 ? .on : .off
             bubbleMenu.addItem(item)
         }
-        let bubbleItem = NSMenuItem(title: "气泡大小", action: nil, keyEquivalent: "")
+        let bubbleItem = NSMenuItem(title: "气泡文字大小", action: nil, keyEquivalent: "")
         bubbleItem.submenu = bubbleMenu
         menu.addItem(bubbleItem)
 
@@ -1271,10 +1302,39 @@ final class PetController: NSObject {
             bubbleStates = value
             changed = true
         }
+        applyMotionConfig(message)
         if changed {
             resizeAndReposition()
             saveLayout()
         }
+    }
+
+    private func applyMotionConfig(_ message: [String: Any]) {
+        if let value = Self.doubleValue(message["petOpacity"]) {
+            petOpacity = min(100, max(10, value.rounded()))
+            panel?.alphaValue = CGFloat(petOpacity / 100)
+        }
+        if let value = Self.doubleValue(message["playbackSpeed"]), Self.playbackSpeeds.contains(value) {
+            playbackSpeed = value
+            restartAnimTimer()
+        }
+        if let value = message["throwStrength"] as? String, PetMotion.throwStrengthCaps[value] != nil {
+            throwStrength = value
+        }
+        if let value = message["powerSaving"] as? Bool { powerSaving = value }
+        if let value = message["dragPhysics"] as? Bool { dragPhysics = value }
+        if let value = message["lockPosition"] as? Bool { lockPosition = value }
+        if let value = message["shiftDrag"] as? Bool { shiftDrag = value }
+        if let value = message["slingshot"] as? Bool { slingshot = value }
+        if let value = message["dropGravity"] as? Bool { dropGravity = value }
+        if let value = message["edgeProbe"] as? Bool { edgeProbe = value }
+        if let value = message["noMove"] as? Bool { noMove = value }
+    }
+
+    /// Whether a press may move the pet: not locked, and SHIFT held when required.
+    func canDrag(shiftHeld: Bool) -> Bool {
+        lastTouch = CACurrentMediaTime()
+        return !lockPosition && (shiftHeld || !shiftDrag)
     }
 
     func quit(reason: String, reportClosed: Bool = true) {
@@ -1594,11 +1654,11 @@ final class PetController: NSObject {
     }
 
     static func clampedScale(_ value: Double) -> Double {
-        min(1.4, max(0.55, value))
+        PetLayout.clampScale(value)
     }
 
     static func clampedBubbleScale(_ value: Double) -> Double {
-        min(1.2, max(0.8, value))
+        PetLayout.clampBubbleScale(value)
     }
 
     private static func stringValue(_ value: Any?) -> String? {

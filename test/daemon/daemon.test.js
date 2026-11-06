@@ -119,7 +119,7 @@ test('helper settings reports are persisted', async () => {
     const saved = loadSettings(paths)
     assert.equal(saved.scale, 1.25)
     assert.equal(saved.reducedMotion, true)
-    assert.equal(helper().env.DAFEIYU_SCALE, '0.6')
+    assert.equal(helper().env.DAFEIYU_SCALE, '0.72')
   })
 })
 
@@ -247,4 +247,25 @@ test('a saved outfit that is no longer bundled falls back to the whale', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('display and motion settings keep to their ranges and choices', async () => {
+  const { sanitizeSettings, DEFAULT_SETTINGS } = await import('../../src/daemon/store.js')
+  assert.equal(DEFAULT_SETTINGS.scale, 0.72)
+  assert.equal(DEFAULT_SETTINGS.dragPhysics, true)
+  assert.equal(DEFAULT_SETTINGS.edgeProbe, true)
+  const clean = sanitizeSettings({
+    scale: 0.1, bubbleScale: 9, petOpacity: 3.4, playbackSpeed: 1.1, animationGap: -5, throwStrength: 'rocket',
+    dragPhysics: false, dropGravity: 'yes', lockPosition: true,
+  })
+  assert.equal(clean.scale, 0.5)
+  assert.equal(clean.bubbleScale, 3)
+  assert.equal(clean.petOpacity, 10)
+  assert.equal(clean.playbackSpeed, 1, 'only listed speeds are kept')
+  assert.equal(clean.animationGap, 0)
+  assert.equal(clean.throwStrength, 'standard')
+  assert.equal(clean.dragPhysics, false)
+  assert.equal(clean.dropGravity, false, 'only a real true switches it on')
+  assert.equal(clean.lockPosition, true)
+  assert.equal(sanitizeSettings({ playbackSpeed: 2, throwStrength: 'crazy' }).throwStrength, 'crazy')
 })

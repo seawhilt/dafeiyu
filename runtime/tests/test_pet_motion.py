@@ -2,6 +2,7 @@ import unittest
 
 from runtime.pet_geometry import (
     FLING_MAX_SPEED,
+    THROW_STRENGTH_CAPS,
     FLING_MIN_SPEED,
     FLING_SAMPLE_WINDOW_S,
     SQUASH_MS,
@@ -43,6 +44,15 @@ class FlingVelocityTests(unittest.TestCase):
         assert velocity is not None
         self.assertAlmostEqual(velocity[0], FLING_MAX_SPEED)
         self.assertAlmostEqual(velocity[1], 0.0)
+
+    def test_the_throw_strength_sets_the_cap(self) -> None:
+        samples = [(0.0, 0.0, 1.00), (900.0, 0.0, 1.01)]
+        for strength, cap in THROW_STRENGTH_CAPS.items():
+            velocity = fling_velocity(samples, now=1.01, max_speed=cap)
+            assert velocity is not None
+            self.assertAlmostEqual(velocity[0], cap, msg=strength)
+        self.assertEqual(FLING_MAX_SPEED, THROW_STRENGTH_CAPS["standard"])
+        self.assertLess(THROW_STRENGTH_CAPS["gentle"], THROW_STRENGTH_CAPS["crazy"])
 
     def test_too_few_samples_never_throw(self) -> None:
         self.assertIsNone(fling_velocity([], now=1.0))

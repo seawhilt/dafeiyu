@@ -65,14 +65,26 @@ struct PetLayout {
         return (Double(petX), y)
     }
 
+    /// Same limits as runtime/layout_store.py and src/core/pet-settings.js.
+    static let scaleRange = 0.5...1.4
+    static let bubbleScaleRange = 0.5...3.0
+
+    static func clampScale(_ value: Double) -> Double {
+        min(scaleRange.upperBound, max(scaleRange.lowerBound, value))
+    }
+
+    static func clampBubbleScale(_ value: Double) -> Double {
+        min(bubbleScaleRange.upperBound, max(bubbleScaleRange.lowerBound, value))
+    }
+
     /// Mirrors `normalise_layout` in `runtime/layout_store.py`: clamps numeric
     /// ranges and falls back to safe defaults for invalid enum-like fields.
     /// Applied both when loading and before saving so the two ports cannot
     /// drift (e.g. a raw `scale: 5` must never be written to disk).
     func normalized() -> PetLayout {
         var layout = self
-        layout.scale = min(1.4, max(0.55, scale))
-        layout.bubbleScale = min(1.2, max(0.8, bubbleScale))
+        layout.scale = PetLayout.clampScale(scale)
+        layout.bubbleScale = PetLayout.clampBubbleScale(bubbleScale)
         if !["auto", "always", "hidden", "custom"].contains(bubbleMode) {
             layout.bubbleMode = "auto"
         }
@@ -93,12 +105,12 @@ struct PetLayout {
         if let raw = json["petX"], !(raw is Bool), let v = raw as? Int { layout.petX = v }
         if let raw = json["petY"], !(raw is Bool), let v = raw as? Int { layout.petY = v }
         if let raw = json["scale"], !(raw is Bool) {
-            if let d = raw as? Double { layout.scale = min(1.4, max(0.55, d)) }
-            else if let i = raw as? Int { layout.scale = min(1.4, max(0.55, Double(i))) }
+            if let d = raw as? Double { layout.scale = clampScale(d) }
+            else if let i = raw as? Int { layout.scale = clampScale(Double(i)) }
         }
         if let raw = json["bubbleScale"], !(raw is Bool) {
-            if let d = raw as? Double { layout.bubbleScale = min(1.2, max(0.8, d)) }
-            else if let i = raw as? Int { layout.bubbleScale = min(1.2, max(0.8, Double(i))) }
+            if let d = raw as? Double { layout.bubbleScale = clampBubbleScale(d) }
+            else if let i = raw as? Int { layout.bubbleScale = clampBubbleScale(Double(i)) }
         }
         if let b = json["reducedMotion"] as? Bool { layout.reducedMotion = b }
         if let mode = json["bubbleMode"] as? String, ["auto", "always", "hidden", "custom"].contains(mode) {

@@ -316,6 +316,7 @@ const SETTINGS_PAGE_CONFIG = {
   version: '0.0.0-test',
   displayed: null,
   settings: { scale: 1, bubbleScale: 1, activityLevel: 'normal', whisperLevel: 'low', bubbleMode: 'auto', reducedMotion: false, soundEnabled: true },
+  options: { scales: [[0.5, '320 px'], [0.72, '461 px'], [0.85, '544 px'], [1, '640 px']], playbackSpeeds: [0.5, 1, 2] },
   sources: [
     {
       id: 'claude', label: 'Claude', kind: 'hooks', enabled: true, configured: false, displayed: false, lastEventAt: null, usage: null,
@@ -469,5 +470,18 @@ test('another tool reports through the hook script with --name and --event', asy
     const state = sent.filter((message) => message.kind === 'state').at(-1)
     assert.equal(state.state, 'THINKING')
     assert.match(state.detail, /^其他工具/u)
+  })
+})
+
+test('the page edits the display and motion settings and offers the size choices', async () => {
+  await withDaemon(async ({ paths, sent }) => {
+    const config = await callDaemon('/config', undefined, { paths })
+    assert.deepEqual(config.options.scales.map(([, label]) => label), ['320 px', '461 px', '544 px', '640 px'])
+    const next = await callDaemon('/config', { patch: { petOpacity: 60, throwStrength: 'strong', noMove: true } }, { paths })
+    assert.equal(next.settings.petOpacity, 60)
+    assert.equal(next.settings.throwStrength, 'strong')
+    const latest = sent.filter((message) => message.kind === 'config').at(-1)
+    assert.equal(latest.petOpacity, 60, 'the pet window gets the change at once')
+    assert.equal(latest.noMove, true)
   })
 })

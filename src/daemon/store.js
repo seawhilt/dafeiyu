@@ -3,6 +3,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { sanitizeBubbleText } from '../core/bubble-text.js'
 import { isProviderId, normalizeOrder } from '../hub/provider-hub.js'
+import {
+  ANIMATION_GAP_MAX_SECONDS, BUBBLE_SCALE_RANGE, DEFAULT_SCALE, OPACITY_RANGE, PLAYBACK_SPEEDS, SCALE_RANGE, THROW_STRENGTHS,
+} from '../core/pet-settings.js'
 
 export function daemonHome(environment = process.env) {
   return environment.DAFEIYU_HOME || join(homedir(), '.dafeiyu')
@@ -22,8 +25,21 @@ export const DEFAULT_SETTINGS = Object.freeze({
   // Sources the user switched off stay set up but never reach the pet.
   sources: Object.freeze({ order: Object.freeze([]), disabled: Object.freeze([]) }),
   deepseekSeen: false,
-  scale: 0.6,
+  scale: DEFAULT_SCALE,
   bubbleScale: 1,
+  petOpacity: 100,
+  playbackSpeed: 1,
+  animationGap: 0,
+  powerSaving: false,
+  noMove: false,
+  // Throwing was this project's first motion feature, so it stays on.
+  dragPhysics: true,
+  dropGravity: false,
+  throwStrength: 'standard',
+  slingshot: true,
+  lockPosition: false,
+  shiftDrag: false,
+  edgeProbe: true,
   activityLevel: 'normal',
   reducedMotion: false,
   soundEnabled: true,
@@ -34,6 +50,12 @@ export const DEFAULT_SETTINGS = Object.freeze({
   character: 'whale',
   bubbleText: Object.freeze({}),
 })
+
+/** Display and motion settings the pet window applies as they change. */
+export const PET_MOTION_SETTINGS = Object.freeze([
+  'petOpacity', 'playbackSpeed', 'animationGap', 'powerSaving', 'noMove', 'dragPhysics', 'dropGravity',
+  'throwStrength', 'slingshot', 'lockPosition', 'shiftDrag', 'edgeProbe',
+])
 
 const clamp = (value, min, max, fallback) => (Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback)
 const oneOf = (value, options, fallback) => (options.includes(value) ? value : fallback)
@@ -51,8 +73,20 @@ export function sanitizeSettings(value) {
   return {
     sources: sanitizeSources(raw.sources),
     deepseekSeen: raw.deepseekSeen === true,
-    scale: clamp(raw.scale, 0.55, 1.4, d.scale),
-    bubbleScale: clamp(raw.bubbleScale, 0.8, 1.2, d.bubbleScale),
+    scale: clamp(raw.scale, SCALE_RANGE.min, SCALE_RANGE.max, d.scale),
+    bubbleScale: clamp(raw.bubbleScale, BUBBLE_SCALE_RANGE.min, BUBBLE_SCALE_RANGE.max, d.bubbleScale),
+    petOpacity: Math.round(clamp(raw.petOpacity, OPACITY_RANGE.min, OPACITY_RANGE.max, d.petOpacity)),
+    playbackSpeed: oneOf(raw.playbackSpeed, PLAYBACK_SPEEDS, d.playbackSpeed),
+    animationGap: clamp(raw.animationGap, 0, ANIMATION_GAP_MAX_SECONDS, d.animationGap),
+    powerSaving: raw.powerSaving === true,
+    noMove: raw.noMove === true,
+    dragPhysics: raw.dragPhysics !== false,
+    dropGravity: raw.dropGravity === true,
+    throwStrength: oneOf(raw.throwStrength, THROW_STRENGTHS, d.throwStrength),
+    slingshot: raw.slingshot !== false,
+    lockPosition: raw.lockPosition === true,
+    shiftDrag: raw.shiftDrag === true,
+    edgeProbe: raw.edgeProbe !== false,
     activityLevel: oneOf(raw.activityLevel, ['quiet', 'normal', 'lively'], d.activityLevel),
     reducedMotion: raw.reducedMotion === true,
     soundEnabled: raw.soundEnabled !== false,

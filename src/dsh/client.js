@@ -42,9 +42,9 @@ window.__ModuleLoader__.load({ id: 'agent-dafeiyu', factory: (require) => {
   function AppearanceSettings({ value, status, writable, write, writeSlider }) {
     const slidersWritable = status === 'ready'
     return React.createElement(React.Fragment, null,
-      React.createElement(Field, { label: '角色大小', hint: `${Math.round((value.scale ?? 1) * 100)}%` },
+      React.createElement(Field, { label: '角色大小', hint: `${Math.round((value.scale ?? 0.72) * 100)}%` },
         React.createElement('input', {
-          type: 'range', min: 0.55, max: 1.4, step: 0.05, value: value.scale ?? 1,
+          type: 'range', min: 0.5, max: 1.4, step: 0.01, value: value.scale ?? 0.72,
           disabled: !slidersWritable,
           onChange: (event) => void writeSlider('scale', Number(event.target.value)),
         }),

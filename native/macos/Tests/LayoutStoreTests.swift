@@ -107,9 +107,9 @@ final class LayoutStoreTests: XCTestCase {
 
     func testBubbleScaleIsClamped() {
         write(["bubbleScale": 9])
-        XCTAssertEqual(PetLayout.load(from: layoutURL()).bubbleScale, 1.2)
+        XCTAssertEqual(PetLayout.load(from: layoutURL()).bubbleScale, 3.0)
         write(["bubbleScale": 0.1])
-        XCTAssertEqual(PetLayout.load(from: layoutURL()).bubbleScale, 0.8)
+        XCTAssertEqual(PetLayout.load(from: layoutURL()).bubbleScale, 0.5)
         write([:])
         XCTAssertEqual(PetLayout.load(from: layoutURL()).bubbleScale, 1.0)
     }

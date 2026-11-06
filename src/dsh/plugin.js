@@ -10,6 +10,7 @@ import { DaemonBridge } from '../daemon/client.js'
 import { createSettingsScope } from './settings-scope.js'
 import { resolveClientTarget } from './client-target.js'
 import { isLocalRequest, jsonResponse } from '../util/local-http.js'
+import { BUBBLE_SCALE_RANGE, DEFAULT_SCALE, SCALE_RANGE } from '../core/pet-settings.js'
 import { BALANCE_ENDPOINT, createBalanceQuery, createBalanceMonitor, createBalanceHandler, balanceProviderNamespace } from './balance.js'
 import {
   CompanionMessageKind,
@@ -36,8 +37,8 @@ const here = dirname(fileURLToPath(import.meta.url))
 const assetsRoot = resolve(here, '..', '..', 'assets')
 export const Config = Schema.object({
   enabled: Schema.boolean().default(true).description('启用桌面大肥鱼'),
-  scale: Schema.number().min(0.55).max(1.4).step(0.05).default(0.6).role('slider').description('角色大小'),
-  bubbleScale: Schema.number().min(0.8).max(1.2).step(0.05).default(1).role('slider').description('气泡大小'),
+  scale: Schema.number().min(SCALE_RANGE.min).max(SCALE_RANGE.max).step(0.01).default(DEFAULT_SCALE).role('slider').description('角色大小'),
+  bubbleScale: Schema.number().min(BUBBLE_SCALE_RANGE.min).max(BUBBLE_SCALE_RANGE.max).step(0.1).default(1).role('slider').description('气泡文字大小'),
   activityLevel: Schema.union([
     Schema.const('quiet').description('安静'),
     Schema.const('normal').description('标准'),
@@ -69,7 +70,7 @@ for (const [key, field] of Object.entries(Config.dict)) Config.dict[key] = field
 
 const defaults = Object.freeze({
   enabled: true,
-  scale: 0.6,
+  scale: DEFAULT_SCALE,
   bubbleScale: 1,
   activityLevel: 'normal',
   reducedMotion: false,
@@ -357,8 +358,8 @@ function mountCompanion(ctx, config = {}, eventCtx = ctx, logger) {
       onSettingsChange: (report) => {
         if (typeof settings.update !== 'function') return
         const patch = {}
-        if (Number.isFinite(report.scale)) patch.scale = Math.min(1.4, Math.max(0.55, report.scale))
-        if (Number.isFinite(report.bubbleScale)) patch.bubbleScale = Math.min(1.2, Math.max(0.8, report.bubbleScale))
+        if (Number.isFinite(report.scale)) patch.scale = Math.min(SCALE_RANGE.max, Math.max(SCALE_RANGE.min, report.scale))
+        if (Number.isFinite(report.bubbleScale)) patch.bubbleScale = Math.min(BUBBLE_SCALE_RANGE.max, Math.max(BUBBLE_SCALE_RANGE.min, report.bubbleScale))
         if (typeof report.reducedMotion === 'boolean') patch.reducedMotion = report.reducedMotion
         if (Object.keys(patch).length === 0) return
         void Promise.resolve(settings.update(patch)).catch((error) => {
