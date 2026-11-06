@@ -43,7 +43,7 @@ DSH 插件 ───────────────────────
 npm install -g https://github.com/seawhilt/dafeiyu/releases/latest/download/agent-dafeiyu.tgz
 ```
 
-安装包里已经带了 macOS 和 Windows 的桌宠程序，约 280 MB，下载需要一会儿。装好后：
+安装包里已经带了 macOS 和 Windows 的桌宠程序，约 520 MB，下载需要一会儿。装好后：
 
 ```bash
 dafeiyu settings

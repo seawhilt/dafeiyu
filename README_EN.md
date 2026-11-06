@@ -30,7 +30,7 @@ Requires Node.js 22.19+. One command, no Xcode, Python or source checkout needed
 npm install -g https://github.com/seawhilt/dafeiyu/releases/latest/download/agent-dafeiyu.tgz
 ```
 
-The package carries the pet program for macOS and Windows (about 280 MB); Linux is unofficial and falls back to the Python helper, which needs `python3` and `PySide6`. Then run `dafeiyu settings` to start the pet and open its settings page, where Claude Code is one click away. To build from source instead: clone the repo, `npx pnpm@11 install --frozen-lockfile`, `npm run build:helper`, `npm link`.
+The package carries the pet program for macOS and Windows (about 520 MB); Linux is unofficial and falls back to the Python helper, which needs `python3` and `PySide6`. Then run `dafeiyu settings` to start the pet and open its settings page, where Claude Code is one click away. To build from source instead: clone the repo, `npx pnpm@11 install --frozen-lockfile`, `npm run build:helper`, `npm link`.
 
 **Upgrade and uninstall**: run `dafeiyu stop` first, then re-run the install command. On Windows this matters: the running daemon holds files in the global install directory, so upgrading without stopping can fail. To pin a version, replace `latest/download/agent-dafeiyu.tgz` with `download/v0.2.6/agent-dafeiyu-0.2.6.tgz`. To uninstall, remove the Claude Code hooks with `dafeiyu uninstall claude`, stop the daemon with `dafeiyu stop`, then `npm uninstall -g agent-dafeiyu`.
 
