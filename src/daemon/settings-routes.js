@@ -120,7 +120,7 @@ export function createSettingsRoutes(ctx) {
       return overview()
     }
     if (action !== 'install' && action !== 'uninstall') throw new SettingsError(404, '不支持的操作')
-    if (!hookSource(id)) throw new SettingsError(400, `${label} 不通过 hooks 接入`)
+    if (!hookSource(id)?.integration) throw new SettingsError(400, `${label} 没有可写入的 hooks 配置`)
     try {
       if (action === 'install') ctx.sources.install(id)
       else ctx.sources.uninstall(id)

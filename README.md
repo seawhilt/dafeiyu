@@ -84,6 +84,21 @@ dafeiyu install cursor
 
 在 `~/.cursor/hooks.json` 写入 hooks。大肥鱼只注册不会拦截 Agent 的事件（提交提示、工具完成或失败、结束、会话结束），**不注册** `preToolUse`、`beforeShellExecution` 等需要返回放行决定的 hook。因此 Cursor 下桌宠用刚完成的工具表示正在做的事，也没有「等你确认」状态。Cursor 也会执行 `~/.claude/settings.json` 里的 hooks，这些事件会被识别出来，只按 Cursor 显示一次。
 
+### 接入其他工具（Gemini CLI、Kimi、Qoder 等）
+
+能在事件发生时执行命令的工具都可以接入，不用等大肥鱼单独适配。先打印给这个工具用的命令：
+
+```bash
+dafeiyu hook-command gemini
+```
+
+把输出的命令加到工具自己的 hooks 配置里。大肥鱼不会改这些工具的配置文件。
+
+- 工具在 stdin 传 JSON 时：认 Claude Code 的字段（`hook_event_name`、`session_id`、`cwd`、`tool_name`）和事件名，Gemini CLI 的 `BeforeAgent` / `BeforeTool` / `AfterTool` / `AfterAgent` 也认得。
+- 工具不传 JSON 时：在命令后加 `--event start`（开始）、`tool`（干活）、`waiting`（等你确认）、`done`（完成）、`error`（出错）或 `end`（会话结束）。
+
+和内置产品一样，只有工具名、事件名、项目目录会发给桌宠，提示词和代码不会。桌宠上统一显示为「其他工具」，收到第一个事件后出现在设置页。
+
 ### 接入 DeepSeek Harness
 
 先在 DSH 里卸载原版 dsh-dafeiyu，再从 [Release 页](https://github.com/seawhilt/dafeiyu/releases/latest) 下载 `agent-dafeiyu.tgz`，安装到对应客户端的 profile：

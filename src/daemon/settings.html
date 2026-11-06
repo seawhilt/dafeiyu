@@ -441,7 +441,7 @@ selectSection(section)
 // ---- Products ----------------------------------------------------------
 
 // Product colours for the letter badges; brand logos are not bundled.
-const BADGE_COLORS = { claude: '#d97757', codex: '#10a37f', cursor: '#5b6170', deepseek: '#4d6bfe' }
+const BADGE_COLORS = { claude: '#d97757', codex: '#10a37f', cursor: '#5b6170', deepseek: '#4d6bfe', other: '#8a8f98' }
 const DRAG_THRESHOLD_PX = 6
 
 /** @returns {[text: string, tone: 'ok' | 'warn' | '']} */
@@ -450,6 +450,9 @@ function sourceStatus(row) {
   const seen = row.lastEventAt ? ` · ${ago(row.lastEventAt)}收到事件` : ''
   if (row.kind === 'dsh') {
     return row.configured ? [`已连接 DSH 插件${seen}`, 'ok'] : ['还没连接过 DSH 插件', 'warn']
+  }
+  if (row.kind === 'manual') {
+    return row.configured ? [`收到过事件${seen}`, 'ok'] : ['还没收到事件，展开查看接入命令', '']
   }
   const integration = row.integration
   if (!integration.readable) return ['读取设置失败', 'warn']
@@ -502,6 +505,16 @@ function hooksDetail(row) {
   }
   fragment.append(actions, el('p', 'hint', '接入会在配置文件里写入 hooks，原文件备份为 .dafeiyu.bak，新开的会话生效。'))
   if (row.setupNote) fragment.append(el('p', 'hint', row.setupNote))
+  return fragment
+}
+
+function manualDetail(row) {
+  const fragment = document.createDocumentFragment()
+  fragment.append(detailList([
+    ['命令', el('span', 'path', row.command)],
+    ['最近事件', row.lastEventAt ? ago(row.lastEventAt) : '这次运行还没收到'],
+  ]))
+  fragment.append(el('p', 'hint', row.setupNote))
   return fragment
 }
 
@@ -569,7 +582,8 @@ function sourceRow(row) {
   if (open) {
     const detail = el('div', 'source-detail')
     detail.id = `source-detail-${row.id}`
-    detail.append(row.kind === 'hooks' ? hooksDetail(row) : dshDetail(row))
+    const details = { hooks: hooksDetail, manual: manualDetail, dsh: dshDetail }
+    detail.append(details[row.kind](row))
     item.append(detail)
   }
   return item

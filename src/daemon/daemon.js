@@ -12,6 +12,7 @@ import { createPetDirector } from '../pet/pet-director.js'
 import { createPetWindow } from '../pet/pet-window.js'
 import { characterPreview, createSettingsRoutes, openInBrowser, settingsPage } from './settings-routes.js'
 import { HOOK_SOURCE_IDS, hookSource } from '../providers/registry.js'
+import { otherHookCommand } from '../providers/other/index.js'
 import { createUsagePoller, USAGE_AFTER_TURN_MS, USAGE_POLL_MS } from './usage-poller.js'
 import { loadWhisperLines, WhisperScheduler } from '../core/whisper.js'
 import {
@@ -249,7 +250,7 @@ export async function startDaemon({
 
   const integrationStatus = (id) => {
     const source = hookSource(id)
-    return source ? source.integration.status(sourcePaths[id]) : undefined
+    return source?.integration?.status(sourcePaths[id])
   }
   // Set up: hooks are installed (or events arrive anyway), or DSH registered.
   const isConfigured = (id) => seen.has(id)
@@ -312,6 +313,12 @@ export async function startDaemon({
   }
 
   const status = () => ({ pid: process.pid, ...hub.state })
+  // hooks: dafeiyu writes them; manual: the user adds our command to the tool.
+  const kindOf = (id) => {
+    const source = hookSource(id)
+    if (!source) return 'dsh'
+    return source.integration ? 'hooks' : 'manual'
+  }
 
   // What the settings page lists and changes, one row per source in the
   // user's order.
@@ -319,13 +326,14 @@ export async function startDaemon({
     list: () => hub.state.order.map((id) => ({
       id,
       label: PROVIDERS[id].label,
-      kind: hookSource(id) ? 'hooks' : 'dsh',
+      kind: kindOf(id),
       enabled: isEnabled(id),
       configured: isConfigured(id),
       displayed: hub.displayed === id,
       lastEventAt: lastEventAt[id] ?? null,
       integration: integrationStatus(id) ?? null,
       setupNote: hookSource(id)?.setupNote ?? null,
+      command: id === 'other' ? otherHookCommand('gemini') : null,
       usage: id === 'claude' ? claudeUsage ?? null : null,
     })),
     setOrder(order) {

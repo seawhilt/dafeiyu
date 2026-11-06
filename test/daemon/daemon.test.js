@@ -109,7 +109,7 @@ test('malformed provider messages are rejected', async () => {
       callDaemon('/providers/deepseek/messages', { messages: [{ kind: 'state', state: 'BOGUS', protocolVersion: 1 }] }, { paths }),
       /Unknown companion state/,
     )
-    await assert.rejects(callDaemon('/providers/other/messages', { messages: [] }, { paths }), /unknown provider/)
+    await assert.rejects(callDaemon('/providers/nope/messages', { messages: [] }, { paths }), /unknown provider/)
   }, { claude: false })
 })
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// Claude Code hook entry. It must never slow down or break Claude Code: it
-// forwards a slimmed payload to the pet daemon, starts the daemon when needed,
+// Hook entry for every hooks-based product. It must never slow down or break
+// the tool that runs it: it forwards a slimmed payload to the pet daemon, starts the daemon when needed,
 // prints nothing and always exits 0.
 import { callDaemon, ensureDaemon } from '../src/daemon/client.js'
-import { hookSource, sourceArgument } from '../src/providers/registry.js'
+import { eventPayload } from '../src/providers/other/index.js'
+import { hookArgument, hookSource, sourceArgument } from '../src/providers/registry.js'
 
 const MAX_STDIN_BYTES = 4 * 1024 * 1024
 
@@ -18,14 +19,23 @@ async function readStdin() {
   return Buffer.concat(chunks).toString('utf8')
 }
 
+// `--event` lets a tool that cannot pass JSON on stdin report an event; stdin
+// is then not read at all, so a terminal never waits for input.
+async function rawPayload(argv) {
+  const event = hookArgument(argv, '--event')
+  if (event) return eventPayload(event, { cwd: process.cwd(), sessionId: hookArgument(argv, '--session') })
+  return JSON.parse(await readStdin())
+}
+
 async function main() {
-  const sourceId = sourceArgument(process.argv.slice(2))
+  const argv = process.argv.slice(2)
+  const sourceId = sourceArgument(argv)
   const source = hookSource(sourceId)
   if (!source) return
   const route = `/hooks/${sourceId}`
   let payload
   try {
-    payload = source.slim(JSON.parse(await readStdin()))
+    payload = source.slim(await rawPayload(argv), { name: hookArgument(argv, '--name') })
   } catch {
     return
   }

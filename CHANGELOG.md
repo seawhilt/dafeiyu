@@ -18,6 +18,7 @@
 - 设置页的「接入的产品」列表：拖动或按 ↑ ↓ 调整顺序、开关单个产品、一键接入或移除。
 - 产品接入注册表（`src/providers/`），新增产品只需加一个目录。
 - 支持 Codex（`dafeiyu install codex`，写入后需在 Codex 里用 `/hooks` 信任）和 Cursor（`dafeiyu install cursor`，只注册不会拦截 Agent 的事件）。
+- 「其他工具」通用接入：任何能在事件时执行命令的工具（Gemini CLI、Kimi、Qoder 等）把 `dafeiyu hook-command <工具名>` 打印的命令加进自己的 hooks 即可，认 Claude Code 与 Gemini CLI 的事件名，也支持 `--event start|tool|done|error`。
 - 出错时气泡说明错误类型和「项目 · 报错原文」；右键「忽略出错提醒」；出错 15 分钟后自动清除，2 小时没有事件的会话自动移除。
 
 ## 0.2.8 · 2026-10-29

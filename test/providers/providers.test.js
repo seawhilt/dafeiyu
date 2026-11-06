@@ -2,10 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { slimClaudeHookPayload, translateClaudeHook } from '../../src/providers/claude/adapter.js'
 import { isProviderId } from '../../src/hub/provider-hub.js'
-import { HOOK_SOURCE_IDS, hookSource, sourceArgument } from '../../src/providers/registry.js'
+import { HOOK_SOURCE_IDS, hookArgument, hookSource, INSTALLABLE_SOURCE_IDS, sourceArgument } from '../../src/providers/registry.js'
 
 test('Claude is registered as a hook source with its own translate and slim', () => {
-  assert.deepEqual(HOOK_SOURCE_IDS, ['claude', 'codex', 'cursor'])
+  assert.deepEqual(HOOK_SOURCE_IDS, ['claude', 'codex', 'cursor', 'other'])
+  assert.deepEqual(INSTALLABLE_SOURCE_IDS, ['claude', 'codex', 'cursor'], 'other tools are wired up by hand')
   const claude = hookSource('claude')
   assert.equal(claude.label, 'Claude')
   assert.equal(claude.translate, translateClaudeHook)
@@ -24,6 +25,7 @@ test('the hook script requires an explicit source', () => {
   assert.equal(sourceArgument([]), undefined)
   assert.equal(sourceArgument(['--source']), undefined)
   assert.equal(sourceArgument(['--source', 'claude']), 'claude')
+  assert.equal(hookArgument(['--source', 'other', '--name', 'gemini'], '--name'), 'gemini')
 })
 
 test('every hook source has a provider hub channel, or its events would be dropped', () => {

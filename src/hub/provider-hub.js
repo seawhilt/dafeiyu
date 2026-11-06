@@ -10,6 +10,7 @@ export const PROVIDERS = Object.freeze({
   codex: Object.freeze({ id: 'codex', label: 'Codex' }),
   cursor: Object.freeze({ id: 'cursor', label: 'Cursor' }),
   deepseek: Object.freeze({ id: 'deepseek', label: 'DeepSeek' }),
+  other: Object.freeze({ id: 'other', label: '其他工具' }),
 })
 export const PROVIDER_IDS = Object.freeze(Object.keys(PROVIDERS))
 

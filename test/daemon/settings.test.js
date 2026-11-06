@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFile } from 'node:child_process'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import test from 'node:test'
 import { runInNewContext } from 'node:vm'
 import { startDaemon } from '../../src/daemon/daemon.js'
@@ -83,7 +86,7 @@ const rowOf = (config, id) => config.sources.find((row) => row.id === id)
 test('config lists every source in order with what is and is not set up', async () => {
   await withDaemon(async ({ paths, claudeSettingsPath }) => {
     const config = await callDaemon('/config', undefined, { paths })
-    assert.deepEqual(config.sources.map((row) => row.id), ['claude', 'codex', 'cursor', 'deepseek'])
+    assert.deepEqual(config.sources.map((row) => row.id), ['claude', 'codex', 'cursor', 'deepseek', 'other'])
     assert.match(rowOf(config, 'codex').setupNote, /\/hooks/u)
     const claude = rowOf(config, 'claude')
     assert.equal(claude.kind, 'hooks')
@@ -94,6 +97,11 @@ test('config lists every source in order with what is and is not set up', async 
     assert.equal(claude.lastEventAt, null)
     assert.equal(rowOf(config, 'deepseek').kind, 'dsh')
     assert.equal(rowOf(config, 'deepseek').integration, null)
+    const other = rowOf(config, 'other')
+    assert.equal(other.kind, 'manual')
+    assert.equal(other.integration, null)
+    assert.match(other.command, /dafeiyu-hook\.mjs" --source other --name gemini$/u)
+    assert.equal(rowOf(config, 'claude').command, null)
     assert.match(config.dsh.packageFile, /^agent-dafeiyu-.+\.tgz$/)
     assert.equal(config.dsh.releaseUrl, 'https://github.com/seawhilt/dafeiyu/releases/latest')
     assert.equal(config.displayed, null)
@@ -117,7 +125,8 @@ test('one-click install and removal edit only the given settings file', async ()
     assert.equal(rowOf(removed, 'claude').integration.installed, false)
     assert.equal(removed.displayed, null)
     assert.deepEqual(JSON.parse(readFileSync(claudeSettingsPath, 'utf8')).statusLine, { type: 'command', command: 'echo hi' }, 'the status line is never touched')
-    await assert.rejects(callDaemon('/sources/deepseek/install', {}, { paths }), /不通过 hooks 接入/)
+    await assert.rejects(callDaemon('/sources/deepseek/install', {}, { paths }), /没有可写入的 hooks 配置/)
+    await assert.rejects(callDaemon('/sources/other/install', {}, { paths }), /没有可写入的 hooks 配置/)
     await assert.rejects(callDaemon('/sources/nope/install', {}, { paths }), /没有这个产品/)
   })
 })
@@ -132,8 +141,8 @@ test('sources can be switched off and reordered, and both are saved', async () =
     assert.equal((await callDaemon('/sources/claude/enable', {}, { paths })).displayed, 'claude')
 
     const reordered = await callDaemon('/sources/order', { order: ['deepseek', 'claude'] }, { paths })
-    assert.deepEqual(reordered.sources.map((row) => row.id), ['deepseek', 'claude', 'codex', 'cursor'])
-    assert.deepEqual(loadSettings(paths).sources.order, ['deepseek', 'claude', 'codex', 'cursor'])
+    assert.deepEqual(reordered.sources.map((row) => row.id), ['deepseek', 'claude', 'codex', 'cursor', 'other'])
+    assert.deepEqual(loadSettings(paths).sources.order, ['deepseek', 'claude', 'codex', 'cursor', 'other'])
     await assert.rejects(callDaemon('/sources/order', { order: ['nope'] }, { paths }), /order must list known sources/)
   })
 })
@@ -441,4 +450,24 @@ test('the page stays online when only /characters fails, and reports offline whe
   await settle()
   assert.ok(offline.bodyClasses.add.includes('offline'), 'a failing /config shows the offline card')
   assert.equal(offline.intervals.size, 1, 'the poll still gets a chance to reconnect')
+})
+
+const hookScript = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'bin', 'dafeiyu-hook.mjs')
+
+test('another tool reports through the hook script with --name and --event', async () => {
+  await withDaemon(async ({ paths, sent }) => {
+    // Asynchronous on purpose: this process is the daemon the script calls.
+    // A blocking spawn would leave it unanswered and the script would start a
+    // second daemon of its own.
+    await promisify(execFile)(process.execPath, [hookScript, '--source', 'other', '--name', 'gemini', '--event', 'start'], {
+      cwd: tmpdir(),
+      env: { ...process.env, DAFEIYU_HOME: paths.home },
+    })
+    const config = await callDaemon('/config', undefined, { paths })
+    assert.equal(config.displayed, 'other')
+    assert.equal(config.sources.find((row) => row.id === 'other').configured, true)
+    const state = sent.filter((message) => message.kind === 'state').at(-1)
+    assert.equal(state.state, 'THINKING')
+    assert.match(state.detail, /^其他工具/u)
+  })
 })
