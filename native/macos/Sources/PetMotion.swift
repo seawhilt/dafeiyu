@@ -80,6 +80,51 @@ enum PetMotion {
         return Fling(position: CGPoint(x: x, y: y), velocity: CGVector(dx: vx, dy: vy), bouncy: fling.bouncy)
     }
 
+    /// 弹弓弹射: while dragging, a right click anchors the pet; pulling the
+    /// pointer away and letting go launches it the other way. Distances grow
+    /// with the pet's size. Same numbers as runtime/pet_geometry.py.
+    static let slingshotMinDistance: CGFloat = 24
+    static let slingshotMaxDistance: CGFloat = 160
+    static let slingshotBaseSpeed: CGFloat = 900
+    static let slingshotMaxStretch: CGFloat = 1.3
+
+    /// The launch direction and strength: from the pointer back to where aiming began.
+    static func slingshotPull(from anchor: CGPoint, to cursor: CGPoint, scale: CGFloat) -> CGVector {
+        var pull = CGVector(dx: anchor.x - cursor.x, dy: anchor.y - cursor.y)
+        let length = hypot(pull.dx, pull.dy)
+        let limit = slingshotMaxDistance * scale
+        if length > limit {
+            pull = CGVector(dx: pull.dx * limit / length, dy: pull.dy * limit / length)
+        }
+        return pull
+    }
+
+    /// Launch velocity for a pull, or nil when it is too short to fire.
+    static func slingshotLaunch(_ pull: CGVector, scale: CGFloat, cap: CGFloat) -> CGVector? {
+        let distance = hypot(pull.dx, pull.dy)
+        let low = slingshotMinDistance * scale
+        let high = slingshotMaxDistance * scale
+        guard distance >= low, high > low else { return nil }
+        let progress = min(1, (distance - low) / (high - low))
+        let eased = 1 - (1 - progress) * (1 - progress)
+        let raw = slingshotBaseSpeed + (3 * cap - slingshotBaseSpeed) * eased
+        // A soft cap keeps harder pulls faster while never passing the cap.
+        let speed = cap * (1 - exp(-raw / cap))
+        return CGVector(dx: pull.dx / distance * speed, dy: pull.dy / distance * speed)
+    }
+
+    /// (width, height) scale of the pet stretched along the pull.
+    static func slingshotStretch(_ pull: CGVector, scale: CGFloat) -> (x: CGFloat, y: CGFloat) {
+        let distance = hypot(pull.dx, pull.dy)
+        guard distance > 1e-6 else { return (1, 1) }
+        let progress = min(1, distance / (slingshotMaxDistance * scale))
+        let ux = pull.dx / distance
+        let uy = pull.dy / distance
+        let stretch = 1 + (slingshotMaxStretch - 1) * progress
+        let squeeze = 1 - (1 - 1 / slingshotMaxStretch) * progress
+        return (hypot(stretch * ux, squeeze * uy), hypot(stretch * uy, squeeze * ux))
+    }
+
     /// A click squashes the pet at its feet and lets it spring back.
     static let squashMs: Double = 480
     static let squashDepth: Double = 0.12

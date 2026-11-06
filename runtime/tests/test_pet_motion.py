@@ -3,6 +3,8 @@ import unittest
 from runtime.pet_geometry import (
     FLING_MAX_SPEED,
     FLING_RESTITUTION,
+    SLINGSHOT_MAX_DISTANCE,
+    SLINGSHOT_MIN_DISTANCE,
     THROW_STRENGTH_CAPS,
     FLING_MIN_SPEED,
     FLING_SAMPLE_WINDOW_S,
@@ -11,6 +13,9 @@ from runtime.pet_geometry import (
     fling_bounds,
     fling_step,
     fling_velocity,
+    slingshot_launch,
+    slingshot_pull,
+    slingshot_stretch,
     squash_scale,
 )
 
@@ -129,6 +134,37 @@ class FlingStepTests(unittest.TestCase):
     def test_letting_go_on_the_floor_ends_at_once(self) -> None:
         bounds = fling_bounds(PET, SCREEN)
         self.assertIsNone(fling_step(Fling(500.0, 880.0, 0.0, 0.0, bouncy=False), 1 / 60, bounds))
+
+
+class SlingshotTests(unittest.TestCase):
+    def test_the_pull_points_away_from_the_cursor_and_is_capped(self) -> None:
+        self.assertEqual(slingshot_pull((500.0, 500.0), (460.0, 530.0), scale=1.0), (40.0, -30.0))
+        far = slingshot_pull((500.0, 500.0), (0.0, 500.0), scale=0.5)
+        self.assertAlmostEqual(far[0], SLINGSHOT_MAX_DISTANCE * 0.5)
+        self.assertEqual(far[1], 0.0)
+
+    def test_a_short_pull_does_not_launch(self) -> None:
+        self.assertIsNone(slingshot_launch((SLINGSHOT_MIN_DISTANCE - 1, 0.0), scale=1.0, cap=4800.0))
+
+    def test_a_longer_pull_launches_faster_but_never_past_the_cap(self) -> None:
+        short = slingshot_launch((40.0, 0.0), scale=1.0, cap=4800.0)
+        full = slingshot_launch((SLINGSHOT_MAX_DISTANCE, 0.0), scale=1.0, cap=4800.0)
+        assert short is not None and full is not None
+        self.assertGreater(short[0], 0.0, "flies the way the pull points")
+        self.assertGreater(full[0], short[0])
+        self.assertLess(full[0], 4800.0)
+        up = slingshot_launch((0.0, -100.0), scale=1.0, cap=4800.0)
+        assert up is not None
+        self.assertLess(up[1], 0.0)
+        self.assertEqual(up[0], 0.0)
+
+    def test_the_pet_stretches_along_the_pull(self) -> None:
+        self.assertEqual(slingshot_stretch((0.0, 0.0), scale=1.0), (1.0, 1.0))
+        sideways = slingshot_stretch((SLINGSHOT_MAX_DISTANCE, 0.0), scale=1.0)
+        self.assertAlmostEqual(sideways[0], 1.3)
+        self.assertLess(sideways[1], 1.0)
+        upward = slingshot_stretch((0.0, -SLINGSHOT_MAX_DISTANCE), scale=1.0)
+        self.assertAlmostEqual(upward[1], 1.3)
 
 
 class SquashTests(unittest.TestCase):

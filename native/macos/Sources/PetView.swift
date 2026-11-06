@@ -26,6 +26,10 @@ final class PetView: NSView {
     }
 
     override func mouseDragged(with event: NSEvent) {
+        if controller?.aiming == true {
+            controller?.updateSlingshot(cursor: NSEvent.mouseLocation)
+            return
+        }
         guard dragAllowed, let grabOffset = grabOffset,
               let windowOrigin = windowOrigin,
               let window = window else { return }
@@ -58,7 +62,28 @@ final class PetView: NSView {
     }
 
     override func rightMouseDown(with event: NSEvent) {
-        controller?.showMenu(with: event)
+        guard let controller = controller else { return }
+        // 弹弓弹射: a right click while dragging aims instead of opening the menu.
+        if controller.dragging {
+            if !controller.toggleSlingshot(cursor: NSEvent.mouseLocation), let window = window {
+                // Back to dragging from where the pointer is now, without a jump.
+                let mouse = NSEvent.mouseLocation
+                grabOffset = NSPoint(x: mouse.x - window.frame.origin.x, y: mouse.y - window.frame.origin.y)
+            }
+            return
+        }
+        controller.showMenu(with: event)
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // Esc cancels aiming (when the panel has keyboard focus).
+        if event.keyCode == 53, controller?.aiming == true {
+            controller?.cancelSlingshot()
+            grabOffset = nil
+            windowOrigin = nil
+            return
+        }
+        super.keyDown(with: event)
     }
 
     override func draw(_ dirtyRect: NSRect) {

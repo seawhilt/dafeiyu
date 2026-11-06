@@ -27,7 +27,8 @@ try:
     from .asset_paths import bundle_root
     from .pet_geometry import (
         THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step,
-        fling_velocity, position_window, screen_outer_edges, squash_scale, tilt_allowance, tilt_for_speed,
+        fling_velocity, position_window, screen_outer_edges, slingshot_launch, slingshot_pull, slingshot_stretch,
+        squash_scale, tilt_allowance, tilt_for_speed,
     )
 except ImportError:
     from animation_model import Player, crossfade_duration
@@ -38,7 +39,8 @@ except ImportError:
     from asset_paths import bundle_root
     from pet_geometry import (
         THROW_STRENGTH_CAPS, Fling, bubble_top, dock_angle, dock_edge, docked_x, fling_bounds, fling_step,
-        fling_velocity, position_window, screen_outer_edges, squash_scale, tilt_allowance, tilt_for_speed,
+        fling_velocity, position_window, screen_outer_edges, slingshot_launch, slingshot_pull, slingshot_stretch,
+        squash_scale, tilt_allowance, tilt_for_speed,
     )
 
 
@@ -518,6 +520,13 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             self.no_move = False
             # Whether the current press may move the pet (locked / SHIFT-only).
             self.drag_allowed = True
+            # 弹弓弹射 while aiming: where the pet and the pointer were when
+            # aiming began, and the current pull.
+            self.slingshot_anchor: QPoint | None = None
+            self.slingshot_cursor: QPoint | None = None
+            self.slingshot_pull = (0.0, 0.0)
+            # The right click that started or ended aiming must not open the menu.
+            self.suppress_menu = False
             self.last_tick_ms = self._now_ms()
             # Whether the last tick painted the bubble; a time-based status or
             # overlay expiry changes the visible card without a message.
@@ -1461,6 +1470,13 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                     painter.translate(feet_x, feet_y)
                     painter.scale(*squash)
                     painter.translate(-feet_x, -feet_y)
+                if self.slingshot_anchor is not None:
+                    # Stretch about the pet's centre along the pull.
+                    _, pet_y, _, pet_height = self._pet_rect()
+                    center_x, center_y = x + pw / 2, pet_y + pet_height / 2
+                    painter.translate(center_x, center_y)
+                    painter.scale(*slingshot_stretch(self.slingshot_pull, self.scale))
+                    painter.translate(-center_x, -center_y)
                 painter.setOpacity(alpha)
                 painter.drawPixmap(QRectF(x, y, pw, ph), pix, QRectF(0, 0, pix.width(), pix.height()))
                 painter.restore()
@@ -1471,6 +1487,10 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             draw_pet(pixmap, fade_alpha)
 
         def mousePressEvent(self, event: QMouseEvent) -> None:
+            if event.button() == Qt.MouseButton.RightButton and self.dragging:
+                self.suppress_menu = True
+                self._toggle_slingshot(event.globalPosition().toPoint())
+                return
             if event.button() == Qt.MouseButton.LeftButton:
                 if self.fling is not None:
                     # Catching a thrown pet lands it where it is.
@@ -1484,6 +1504,12 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 self.dragging = False
 
         def mouseMoveEvent(self, event: QMouseEvent) -> None:
+            if self.slingshot_anchor is not None and self.slingshot_cursor is not None:
+                cursor = event.globalPosition().toPoint()
+                self.slingshot_pull = slingshot_pull(
+                    (self.slingshot_cursor.x(), self.slingshot_cursor.y()), (cursor.x(), cursor.y()), self.scale)
+                self.update()
+                return
             if self.drag_origin is not None and self.pet_origin is not None and self.drag_allowed:
                 if not self.dragging and (event.globalPosition().toPoint() - self.drag_origin).manhattanLength() > 5:
                     self._begin_drag()
@@ -1494,7 +1520,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
 
         def mouseReleaseEvent(self, event: QMouseEvent) -> None:
             if event.button() == Qt.MouseButton.LeftButton:
-                if self.dragging:
+                if self.dragging and self.slingshot_anchor is not None:
+                    self._release_slingshot()
+                elif self.dragging:
                     velocity = (
                         fling_velocity(self.drag_samples, time.monotonic(), THROW_STRENGTH_CAPS[self.throw_strength])
                         if self.drag_physics and not self.reduced_motion
@@ -1523,6 +1551,46 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             else:
                 reset_native_cursor()
 
+        def _toggle_slingshot(self, cursor: QPoint) -> None:
+            """A right click while dragging starts aiming; another one goes back to dragging."""
+            if self.slingshot_anchor is not None:
+                # Resume the drag from here without a jump.
+                self.slingshot_anchor = None
+                self.slingshot_pull = (0.0, 0.0)
+                self.drag_origin = cursor
+                self.pet_origin = QPoint(self.pet_x, self.pet_y)
+            elif self.slingshot and not self.reduced_motion:
+                self.slingshot_anchor = QPoint(self.pet_x, self.pet_y)
+                self.slingshot_cursor = cursor
+                self.slingshot_pull = (0.0, 0.0)
+            self.update()
+
+        def _release_slingshot(self) -> None:
+            """Letting go while aiming fires, or just drops the pet if the pull is too short."""
+            anchor = self.slingshot_anchor
+            pull = self.slingshot_pull
+            self.slingshot_anchor = None
+            self.slingshot_pull = (0.0, 0.0)
+            self._finish_drag()
+            if anchor is not None:
+                self._move_to_pet(anchor.x(), anchor.y())
+            velocity = slingshot_launch(pull, self.scale, THROW_STRENGTH_CAPS[self.throw_strength])
+            if velocity is not None:
+                self.fling = Fling(float(self.pet_x), float(self.pet_y), *velocity)
+            else:
+                self._report_drop()
+                self._save_layout()
+
+        def keyPressEvent(self, event: Any) -> None:
+            # Esc cancels aiming: the pet stays where aiming began.
+            if event.key() == Qt.Key.Key_Escape and self.slingshot_anchor is not None:
+                self.slingshot_pull = (0.0, 0.0)
+                self._release_slingshot()
+                self.drag_origin = None
+                self.pet_origin = None
+                return
+            super().keyPressEvent(event)
+
         def _play_click_interaction(self, x: float, y: float) -> None:
             """Report which part of the pet was clicked; the daemon reacts."""
             pet_x, pet_y, pet_width, pet_height = self._pet_rect()
@@ -1543,6 +1611,9 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
                 emit_reply("input", type="double-click")
 
         def contextMenuEvent(self, event: Any) -> None:
+            if self.suppress_menu or self.dragging:
+                self.suppress_menu = False
+                return
             menu = QMenu(self)
             size_menu = menu.addMenu("大小")
             size_actions = {}

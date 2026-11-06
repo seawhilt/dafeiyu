@@ -213,6 +213,53 @@ def fling_step(fling: Fling, seconds: float, bounds: tuple[int, int, int, int]) 
     return Fling(x, y, vx, vy, fling.bouncy)
 
 
+# 弹弓弹射: while dragging, a right click anchors the pet; pulling the pointer
+# away and letting go launches it the other way. Distances grow with the pet's
+# size. Numbers from dsh-pet-indesktop (pet/physics.py).
+SLINGSHOT_MIN_DISTANCE = 24.0
+SLINGSHOT_MAX_DISTANCE = 160.0
+SLINGSHOT_BASE_SPEED = 900.0
+SLINGSHOT_MAX_STRETCH = 1.3
+
+
+def slingshot_pull(
+    anchor_cursor: tuple[float, float], cursor: tuple[float, float], scale: float,
+) -> tuple[float, float]:
+    """The launch direction and strength: from the pointer back to where aiming began."""
+    px, py = anchor_cursor[0] - cursor[0], anchor_cursor[1] - cursor[1]
+    length = hypot(px, py)
+    limit = SLINGSHOT_MAX_DISTANCE * scale
+    if length > limit:
+        px, py = px * limit / length, py * limit / length
+    return px, py
+
+
+def slingshot_launch(pull: tuple[float, float], scale: float, cap: float) -> tuple[float, float] | None:
+    """Launch velocity for a pull, or None when it is too short to fire."""
+    distance = hypot(*pull)
+    low, high = SLINGSHOT_MIN_DISTANCE * scale, SLINGSHOT_MAX_DISTANCE * scale
+    if distance < low or high <= low:
+        return None
+    progress = min(1.0, (distance - low) / (high - low))
+    eased = 1 - (1 - progress) ** 2
+    raw = SLINGSHOT_BASE_SPEED + (3 * cap - SLINGSHOT_BASE_SPEED) * eased
+    # A soft cap keeps harder pulls faster while never passing the cap.
+    speed = cap * (1 - exp(-raw / cap))
+    return pull[0] / distance * speed, pull[1] / distance * speed
+
+
+def slingshot_stretch(pull: tuple[float, float], scale: float) -> tuple[float, float]:
+    """(width, height) scale of the pet stretched along the pull."""
+    distance = hypot(*pull)
+    if distance <= 1e-6:
+        return 1.0, 1.0
+    progress = min(1.0, distance / (SLINGSHOT_MAX_DISTANCE * scale))
+    ux, uy = pull[0] / distance, pull[1] / distance
+    stretch = 1 + (SLINGSHOT_MAX_STRETCH - 1) * progress
+    squeeze = 1 - (1 - 1 / SLINGSHOT_MAX_STRETCH) * progress
+    return hypot(stretch * ux, squeeze * uy), hypot(stretch * uy, squeeze * ux)
+
+
 # A click squashes the pet at its feet and lets it spring back.
 SQUASH_MS = 480
 SQUASH_DEPTH = 0.12

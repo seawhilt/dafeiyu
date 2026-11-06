@@ -83,6 +83,18 @@ final class PetMotionTests: XCTestCase {
         XCTAssertNil(PetMotion.step(.init(position: CGPoint(x: 500, y: 0), velocity: .zero, bouncy: false), seconds: 1 / 60, bounds: bounds))
     }
 
+    func testTheSlingshotPullsLaunchesAndStretches() {
+        let pull = PetMotion.slingshotPull(from: CGPoint(x: 500, y: 500), to: CGPoint(x: 0, y: 500), scale: 0.5)
+        XCTAssertEqual(pull.dx, PetMotion.slingshotMaxDistance * 0.5, accuracy: 0.001)
+        XCTAssertNil(PetMotion.slingshotLaunch(CGVector(dx: 20, dy: 0), scale: 1, cap: 4800))
+        let short = PetMotion.slingshotLaunch(CGVector(dx: 40, dy: 0), scale: 1, cap: 4800)
+        let full = PetMotion.slingshotLaunch(CGVector(dx: 160, dy: 0), scale: 1, cap: 4800)
+        XCTAssertGreaterThan(full?.dx ?? 0, short?.dx ?? 0)
+        XCTAssertLessThan(full?.dx ?? 9999, 4800)
+        XCTAssertEqual(PetMotion.slingshotStretch(CGVector(dx: 160, dy: 0), scale: 1).x, 1.3, accuracy: 0.001)
+        XCTAssertEqual(PetMotion.slingshotStretch(.zero, scale: 1).x, 1)
+    }
+
     func testAClickSquashesThenSpringsBack() {
         let start = PetMotion.squash(elapsedMs: 0)
         XCTAssertLessThan(start?.y ?? 1, 1)

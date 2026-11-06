@@ -10,7 +10,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 try:
-    from PySide6.QtCore import QRect, QTimer
+    from PySide6.QtCore import QPoint, QRect, QTimer
     from PySide6.QtGui import QDesktopServices
     from PySide6.QtWidgets import QApplication
 except ImportError:
@@ -88,6 +88,30 @@ class HelperGeometryTests(unittest.TestCase):
                         window.last_tick_ms -= 16
                         window._tick()
                     self.assertEqual((window.pet_x, window.pet_y), (600, 1040 - pet_height))
+                    # 弹弓弹射: a right click while dragging anchors the pet; a long
+                    # enough pull fires it the other way, a short one just drops it.
+                    window._move_to_pet(800, 400)
+                    window._begin_drag()
+                    window._toggle_slingshot(QPoint(900, 500))
+                    self.assertEqual(window.slingshot_anchor, QPoint(800, 400))
+                    window.slingshot_pull = (-120.0, -60.0)
+                    window.grab()  # the stretched pet paints
+                    window._release_slingshot()
+                    self.assertIsNotNone(window.fling)
+                    self.assertLess(window.fling.vx, 0, 'flies the way the pull points')
+                    self.assertEqual((window.pet_x, window.pet_y), (800, 400), 'launches from the anchor')
+                    window.fling = None
+                    window._begin_drag()
+                    window._toggle_slingshot(QPoint(900, 500))
+                    window.slingshot_pull = (5.0, 0.0)
+                    window._release_slingshot()
+                    self.assertIsNone(window.fling, 'a short pull does not fire')
+                    window._begin_drag()
+                    window._toggle_slingshot(QPoint(900, 500))
+                    window._toggle_slingshot(QPoint(910, 505))
+                    self.assertIsNone(window.slingshot_anchor, 'a second right click goes back to dragging')
+                    self.assertEqual(window.drag_origin, QPoint(910, 505))
+                    window._finish_drag()
                     # Display and motion settings from the daemon apply at once.
                     message('config', petOpacity=55, playbackSpeed=2.0, powerSaving=True, lockPosition=True,
                             throwStrength='crazy', dragPhysics=False)

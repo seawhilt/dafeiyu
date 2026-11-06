@@ -889,9 +889,14 @@ final class PetController: NSObject {
     func endDrag() {
         guard dragging else { return }
         let cap = PetMotion.throwStrengthCaps[throwStrength] ?? PetMotion.flingMaxSpeed
-        let velocity = dragPhysics && !reducedMotion
-            ? PetMotion.flingVelocity(dragSamples, now: CACurrentMediaTime(), maxSpeed: cap)
-            : nil
+        let fired = aiming
+        let velocity = fired
+            ? PetMotion.slingshotLaunch(slingshotPull, scale: CGFloat(scale), cap: cap)
+            : dragPhysics && !reducedMotion
+                ? PetMotion.flingVelocity(dragSamples, now: CACurrentMediaTime(), maxSpeed: cap)
+                : nil
+        slingshotCursor = nil
+        slingshotPull = .zero
         dragSamples = []
         fadeFromFrame = nil
         dragging = false
@@ -907,7 +912,7 @@ final class PetController: NSObject {
             contentView?.needsDisplay = true
             return
         }
-        if dropGravity && !reducedMotion {
+        if dropGravity && !reducedMotion && !fired {
             // 静止放手下落: fall to the floor without bouncing.
             fling = PetMotion.Fling(position: CGPoint(x: petX, y: petY), velocity: .zero, bouncy: false)
             contentView?.needsDisplay = true
@@ -1337,6 +1342,39 @@ final class PetController: NSObject {
         if let value = message["noMove"] as? Bool { noMove = value }
     }
 
+    /// 弹弓弹射 while aiming: where the pointer was when aiming began (the
+    /// window stays put), and the current pull.
+    private var slingshotCursor: CGPoint?
+    private var slingshotPull = CGVector.zero
+    var aiming: Bool { slingshotCursor != nil }
+
+    /// A right click while dragging starts aiming; another one goes back to
+    /// dragging. Returns whether the pet is aiming now.
+    func toggleSlingshot(cursor: CGPoint) -> Bool {
+        if aiming {
+            slingshotCursor = nil
+            slingshotPull = .zero
+        } else if slingshot && !reducedMotion {
+            slingshotCursor = cursor
+            slingshotPull = .zero
+        }
+        contentView?.needsDisplay = true
+        return aiming
+    }
+
+    func updateSlingshot(cursor: CGPoint) {
+        guard let anchor = slingshotCursor else { return }
+        slingshotPull = PetMotion.slingshotPull(from: anchor, to: cursor, scale: CGFloat(scale))
+        contentView?.needsDisplay = true
+    }
+
+    /// Esc while aiming: the pet stays where aiming began.
+    func cancelSlingshot() {
+        guard aiming else { return }
+        slingshotPull = .zero
+        endDrag()
+    }
+
     /// Whether a press may move the pet: not locked, and SHIFT held when required.
     func canDrag(shiftHeld: Bool) -> Bool {
         lastTouch = CACurrentMediaTime()
@@ -1490,6 +1528,11 @@ final class PetController: NSObject {
                 ctx.translateBy(x: 0, y: drawHeight / 2)
                 ctx.scaleBy(x: squash.x, y: squash.y)
                 ctx.translateBy(x: 0, y: -drawHeight / 2)
+            }
+            if aiming {
+                // Stretch about the pet's centre along the pull.
+                let stretch = PetMotion.slingshotStretch(slingshotPull, scale: CGFloat(scale))
+                ctx.scaleBy(x: stretch.x, y: stretch.y)
             }
             // The content view is flipped (top-left origin). NSImage drawing
             // does not compensate for a flipped context, which would render
