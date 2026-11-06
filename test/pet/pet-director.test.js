@@ -143,7 +143,7 @@ test('dropping the pet on a screen edge docks it and holds it still', () => {
   director.input({ type: 'drag-start' })
   director.input({ type: 'drag-end', edge: 'left' })
   assert.equal(director.docked, 'left')
-  assert.deepEqual(sent.filter((message) => message.kind === 'dock').map((message) => message.edge), ['left'])
+  assert.deepEqual(sent.filter((message) => message.kind === 'dock').map(({ edge, engaged }) => [edge, engaged]), [['left', false]])
   assert.equal(plays().at(-1), 'idle', 'it docks on the resting clip, not the landing')
   const before = plays().length
   director.observe(state('WORKING', { activity: 'editing' }))
@@ -152,15 +152,32 @@ test('dropping the pet on a screen edge docks it and holds it still', () => {
   assert.equal(timers.pending.some((timer) => timer.ms >= 3000), false, 'no idle actions while docked')
 })
 
-test('a touch brings a docked pet back out on the current clip', () => {
-  const { director, sent, plays } = setup()
+test('a click stands a probing pet upright for five seconds, then it leans back in', () => {
+  const { director, sent, plays, timers } = setup()
+  const docks = () => sent.filter((message) => message.kind === 'dock').map(({ edge, engaged }) => [edge, engaged])
   director.input({ type: 'drag-end', edge: 'right' })
   director.observe(state('WORKING', { activity: 'editing' }))
   director.input({ type: 'click', region: 'poke' })
+  assert.equal(director.docked, 'right', 'it stays at the edge')
+  assert.deepEqual(docks(), [['right', false], ['right', true]])
+  assert.notEqual(plays().at(-1), 'idle', 'the click reaction plays while upright')
+  const timer = timers.pending.find((item) => item.ms === 5000)
+  assert.ok(timer, 'a five second return is scheduled')
+  director.input({ type: 'click', region: 'head_pat' })
+  assert.equal(timers.pending.filter((item) => item.ms === 5000).length, 1, 'another click restarts the wait')
+  timers.fire((item) => item.ms === 5000)
+  assert.deepEqual(docks().at(-1), ['right', false])
+  assert.equal(director.docked, 'right')
+})
+
+test('switching the edge probe off releases a docked pet and stops new docks', () => {
+  const { director, sent } = setup()
+  director.input({ type: 'drag-end', edge: 'left' })
+  director.observe(createMessage('config', { edgeProbe: false }))
   assert.equal(director.docked, null)
-  assert.deepEqual(sent.filter((message) => message.kind === 'dock').map((message) => message.edge), ['right', null])
-  assert.equal(plays().at(-1), 'write_code')
-  assert.equal(sent.at(-1).message, '我出来啦~')
+  assert.equal(sent.filter((message) => message.kind === 'dock').at(-1).edge, null)
+  director.input({ type: 'drag-end', edge: 'left' })
+  assert.equal(director.docked, null)
 })
 
 test('dragging a docked pet away undocks it and plays the drag', () => {
@@ -186,4 +203,43 @@ test('the action gap adds its seconds to the rest between idle actions', () => {
   assert.equal(timers.pending.at(-1).ms, base + 12500)
   director.observe(createMessage('config', { animationGap: -3 }))
   assert.equal(timers.pending.at(-1).ms, base, 'a bad value counts as no gap')
+})
+
+test('an idle pet sometimes walks: the clip loops and the window is told to walk', () => {
+  const { director, sent, plays, timers } = setup({ random: () => 0.99 })
+  director.observe(state('IDLE'))
+  timers.fire()
+  const walk = sent.filter((message) => message.kind === 'walk').at(-1)
+  assert.ok(walk, 'a walk was asked for')
+  assert.ok(Object.keys(MANIFEST.moveClips).includes(walk.clip))
+  const playMessage = sent.filter((message) => message.kind === 'play').at(-1)
+  assert.deepEqual([playMessage.clip, playMessage.loop], [walk.clip, true])
+  const before = plays().length
+  director.passEnded(walk.clip)
+  assert.equal(plays().length, before, 'each loop of the walk does not end it')
+  director.input({ type: 'walk-end' })
+  assert.equal(plays().at(-1), 'idle')
+  assert.ok(timers.pending.length > 0, 'idle actions resume')
+})
+
+test('no walking with 不移动, reduced motion, or while probing at an edge', () => {
+  for (const config of [{ noMove: true }, { reducedMotion: true }]) {
+    const { director, sent, timers } = setup({ random: () => 0.99 })
+    director.observe(createMessage('config', config))
+    director.observe(state('IDLE'))
+    if (timers.pending.length > 0) timers.fire()
+    assert.equal(sent.some((message) => message.kind === 'walk'), false, JSON.stringify(config))
+  }
+})
+
+test('getting busy or a click ends a walk on the spot', () => {
+  const { director, sent, plays, timers } = setup({ random: () => 0.99 })
+  director.observe(state('IDLE'))
+  timers.fire()
+  const clip = sent.filter((message) => message.kind === 'walk').at(-1).clip
+  director.observe(state('WORKING', { activity: 'editing' }))
+  assert.notEqual(plays().at(-1), clip)
+  director.passEnded(clip)
+  director.input({ type: 'walk-end' })
+  assert.notEqual(plays().at(-1), 'idle', 'a late walk-end does not override the work clip')
 })
