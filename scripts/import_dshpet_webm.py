@@ -13,8 +13,9 @@ alpha becomes a plain gray plane through ``alphaextract``. The bounding box is
 therefore measured by piping alphaextract rawvideo through Python and scanning
 rows for non-transparent pixels -- the only dependency is ffmpeg with libvpx.
 
-Frames are re-encoded as transparent WebP (q68) at the clips' native 24 fps,
-which PySide6 decodes natively and keeps the bundled package small. Before
+Every clip is re-encoded as transparent WebP (q90, sharp RGB->YUV) at its
+native 24 fps: half-rate clips and heavier compression read as flicker once
+the pet is scaled up. Before
 encoding, each frame's white matte is removed (see ``matte.py``; needs Pillow
 and numpy), which takes the pale fringe off the character's outline.
 
@@ -49,7 +50,9 @@ CANVAS_WIDTH = 640
 CANVAS_HEIGHT = 360
 FPS = 24
 FRAME_MS = 42  # round(1000 / 24); the source clips are natively 24 fps, so no decimation
-QUALITY = 68
+QUALITY = 90
+# Encoder settings stamped on each clip, so a change re-exports every clip.
+ENCODING = f"q{QUALITY}-sharp-yuv"
 PAD = 12
 ALPHA_THRESHOLD = 8
 
@@ -82,8 +85,9 @@ SELECTION = [
     ("note_taking", "轻快记录.webm", True, None),
 ]
 # Decorative clips: idle variety, reactions, chatter, meals, quota, holidays.
-# They play at half rate, which halves their size with little visible loss.
-DECOR_FPS = 12
+# They used to play at half rate to save space; at 12 fps the pet visibly
+# stutters when scaled up, so they now keep the source rate too.
+DECOR_FPS = FPS
 SELECTION += [
     (key, f"{name}.webm", False, None, DECOR_FPS)
     for key, name in [
@@ -466,7 +470,7 @@ def encode_webp(ffmpeg: Path, source: Path, crop: tuple[int, int, int, int], tar
 
     def convert(png: Path) -> None:
         clean_file(png)
-        run([cwebp, "-quiet", "-q", str(QUALITY), "-m", "4", str(png), "-o", str(png.with_suffix(".webp"))])
+        run([cwebp, "-quiet", "-q", str(QUALITY), "-m", "4", "-sharp_yuv", str(png), "-o", str(png.with_suffix(".webp"))])
         png.unlink()
 
     with ThreadPoolExecutor() as pool:
@@ -506,7 +510,7 @@ def main() -> int:
     def reusable(key: str, name: str, fps: int) -> bool:
         old = previous.get(key)
         return bool(old) and old["source"]["sha256"] == hashes[name] and old["frameMs"] == round(1000 / fps) \
-            and old["source"].get("matte") == MATTE_VERSION and all((pet_root / frame).exists() for frame in old["frames"])
+            and old["source"].get("matte") == MATTE_VERSION and old["source"].get("encoding") == ENCODING and all((pet_root / frame).exists() for frame in old["frames"])
 
     for key, name, _, _, fps in entries:
         if reusable(key, name, fps) or name in sources:
@@ -553,6 +557,7 @@ def main() -> int:
                 "startFrame": start, "endFrame": end,
                 "frameCount": len(frames),
                 "matte": MATTE_VERSION,
+                "encoding": ENCODING,
             },
         }
         total_kb = sum(p.stat().st_size for p in clip_dir.glob("*.webp")) // 1024
