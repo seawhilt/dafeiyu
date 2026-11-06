@@ -13,6 +13,7 @@ import { hookSource } from '../providers/registry.js'
 const here = dirname(fileURLToPath(import.meta.url))
 const packageRoot = resolve(here, '..', '..')
 const settingsPagePath = resolve(here, 'settings.html')
+const settingsScriptPath = resolve(here, 'settings.js')
 const pkg = JSON.parse(readFileSync(resolve(packageRoot, 'package.json'), 'utf8'))
 
 // Settings the page may change; everything else stays daemon-owned.
@@ -61,7 +62,10 @@ export function characterPreview(id, petsRoot) {
 export function settingsPage() {
   const nonce = randomBytes(16).toString('base64')
   return {
-    html: readFileSync(settingsPagePath, 'utf8').replaceAll('__NONCE__', nonce),
+    // A function replacement keeps `$&`-style patterns in the script literal.
+    html: readFileSync(settingsPagePath, 'utf8')
+      .replace('__SCRIPT__', () => readFileSync(settingsScriptPath, 'utf8'))
+      .replaceAll('__NONCE__', nonce),
     csp: [
       "default-src 'none'",
       `script-src 'nonce-${nonce}'`,
