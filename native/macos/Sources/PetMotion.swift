@@ -174,17 +174,17 @@ enum PetMotion {
         return (Double(loop) + within) / Double(loops)
     }
 
-    /// A click squashes the pet at its feet and lets it spring back.
-    static let squashMs: Double = 480
-    static let squashDepth: Double = 0.12
-    static let squashDecayMs: Double = 110
-    static let squashPeriodMs: Double = 240
-    static let squashWiden: Double = 0.5
+    /// A click presses the pet down at its feet and it springs straight
+    /// back; every click restarts it. Same curve as runtime/pet_geometry.py
+    /// and dsh-pet-indesktop.
+    static let squashMs: Double = 220
+    static let squashHeight: Double = 0.15  // shortest: 85% of its height
+    static let squashWidth: Double = 0.10  // widest: 110% of its width
 
     /// (width, height) scale `elapsedMs` after a click, nil when done.
     static func squash(elapsedMs: Double) -> (x: CGFloat, y: CGFloat)? {
         guard elapsedMs >= 0, elapsedMs < squashMs else { return nil }
-        let amount = squashDepth * exp(-elapsedMs / squashDecayMs) * cos(2 * .pi * elapsedMs / squashPeriodMs)
-        return (CGFloat(1 + amount * squashWiden), CGFloat(1 - amount))
+        let pulse = sin(.pi * elapsedMs / squashMs)
+        return (CGFloat(1 + squashWidth * pulse), CGFloat(1 - squashHeight * pulse))
     }
 }

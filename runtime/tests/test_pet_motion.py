@@ -168,27 +168,24 @@ class SlingshotTests(unittest.TestCase):
 
 
 class SquashTests(unittest.TestCase):
-    def test_a_click_squashes_the_pet_then_springs_back(self) -> None:
-        start = squash_scale(0)
-        assert start is not None
-        self.assertLess(start[1], 1.0, "squashed down")
-        self.assertGreater(start[0], 1.0, "and wider")
+    """A click presses the pet down and it springs straight back, as in dsh-pet-indesktop."""
+
+    def test_it_starts_and_ends_at_full_size(self) -> None:
+        self.assertEqual(squash_scale(0), (1.0, 1.0))
         self.assertIsNone(squash_scale(SQUASH_MS))
         self.assertIsNone(squash_scale(-1))
+        self.assertEqual(SQUASH_MS, 220)
 
-    def test_it_overshoots_once_and_stays_gentle(self) -> None:
-        heights = [squash_scale(ms) for ms in range(0, SQUASH_MS, 10)]
-        self.assertTrue(any(scale is not None and scale[1] > 1.0 for scale in heights), "springs past its size")
-        for scale in heights:
-            assert scale is not None
-            self.assertTrue(0.8 < scale[1] < 1.2)
-            self.assertTrue(0.8 < scale[0] < 1.2)
+    def test_halfway_it_is_15_percent_shorter_and_10_percent_wider(self) -> None:
+        width, height = squash_scale(SQUASH_MS / 2)
+        self.assertAlmostEqual(width, 1.10)
+        self.assertAlmostEqual(height, 0.85)
 
-    def test_it_ends_close_to_its_normal_size(self) -> None:
-        last = squash_scale(SQUASH_MS - 1)
-        assert last is not None
-        self.assertAlmostEqual(last[0], 1.0, delta=0.02)
-        self.assertAlmostEqual(last[1], 1.0, delta=0.02)
+    def test_it_never_grows_taller_than_normal(self) -> None:
+        for ms in range(0, SQUASH_MS, 5):
+            width, height = squash_scale(ms)
+            self.assertLessEqual(height, 1.0)
+            self.assertGreaterEqual(width, 1.0)
 
 
 if __name__ == "__main__":

@@ -1693,8 +1693,10 @@ def run_visual(recorder: EventRecorder, snapshot_path: Path | None = None) -> in
             emit_reply("input", type="click", region=region)
 
         def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
-            if event.button() == Qt.MouseButton.LeftButton:
-                emit_reply("input", type="double-click")
+            # Qt sends the second press of a quick pair here instead of to
+            # mousePressEvent. Treat it as a press: every click reacts on its
+            # own (the release reports it), as in dsh-pet-indesktop.
+            self.mousePressEvent(event)
 
         def contextMenuEvent(self, event: Any) -> None:
             if self.suppress_menu or self.dragging:

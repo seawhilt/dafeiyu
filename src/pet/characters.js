@@ -167,7 +167,6 @@ export function codexManifest(displayName, directory) {
     },
     idleMicroClips: ['wave', 'jump', 'run_right_once', 'run_left_once'],
     idleMicroIntervalsMs: { quiet: [20000, 40000], normal: [8000, 15000], lively: [3000, 6000] },
-    interactionCooldownMs: 1200,
     actionMenu: [{
       label: '动作',
       items: [

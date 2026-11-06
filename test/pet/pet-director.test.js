@@ -81,6 +81,17 @@ test('clicks cycle reactions with a line, and rapid clicks get annoyed', () => {
   assert.match(sent.at(-1).message, /生气/)
 })
 
+test('every click cuts in with a reaction, even mid-reaction and in quick succession', () => {
+  const { director, plays, sent, tick } = setup()
+  director.observe(state('IDLE'))
+  director.input({ type: 'click', region: 'head_pat' })
+  const first = plays().at(-1)
+  tick(150)
+  director.input({ type: 'click', region: 'tail' })
+  assert.notEqual(plays().at(-1), first, 'the second click does not wait for the first reaction')
+  assert.match(sent.at(-1).message, /尾巴/)
+})
+
 test('dragging owns the pet and lands with the release clip', () => {
   const { director, plays } = setup()
   director.observe(state('WORKING', { activity: 'editing' }))

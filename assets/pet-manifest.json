@@ -17023,7 +17023,6 @@
       6000
     ]
   },
-  "interactionCooldownMs": 1200,
   "moveClips": {
     "run_in_place": {
       "stride": 240,

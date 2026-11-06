@@ -583,7 +583,6 @@ def main() -> int:
         "loopVariants": LOOP_VARIANTS,
         "actionMenu": ACTION_MENU,
         "idleMicroIntervalsMs": IDLE_MICRO_INTERVALS_MS,
-        "interactionCooldownMs": 1200,
         "moveClips": {
             key: value
             for key, value in json.loads(MOVE_STRIDES_PATH.read_text(encoding="utf-8"))["clips"].items()

@@ -114,13 +114,15 @@ final class PetMotionTests: XCTestCase {
         XCTAssertEqual(PetMotion.walkProgress(curve: curve, loops: 1, fraction: 1.5), 1)
     }
 
-    func testAClickSquashesThenSpringsBack() {
+    func testAClickPressesThePetDownAndItSpringsBack() {
+        XCTAssertEqual(PetMotion.squashMs, 220)
         let start = PetMotion.squash(elapsedMs: 0)
-        XCTAssertLessThan(start?.y ?? 1, 1)
-        XCTAssertGreaterThan(start?.x ?? 1, 1)
-        XCTAssertNil(PetMotion.squash(elapsedMs: PetMotion.squashMs))
+        XCTAssertEqual(start?.x, 1)
+        XCTAssertEqual(start?.y, 1)
+        let middle = PetMotion.squash(elapsedMs: 110)
+        XCTAssertEqual(Double(middle?.x ?? 0), 1.10, accuracy: 1e-9)
+        XCTAssertEqual(Double(middle?.y ?? 0), 0.85, accuracy: 1e-9)
+        XCTAssertNil(PetMotion.squash(elapsedMs: 220))
         XCTAssertNil(PetMotion.squash(elapsedMs: -1))
-        let overshoots = stride(from: 0.0, to: PetMotion.squashMs, by: 10).contains { (PetMotion.squash(elapsedMs: $0)?.y ?? 0) > 1 }
-        XCTAssertTrue(overshoots)
     }
 }

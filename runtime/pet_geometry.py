@@ -329,17 +329,16 @@ def walk_progress(curve: list[float] | None, loops: int, fraction: float) -> flo
     return (loop + within) / loops
 
 
-# A click squashes the pet at its feet and lets it spring back.
-SQUASH_MS = 480
-SQUASH_DEPTH = 0.12
-SQUASH_DECAY_MS = 110.0
-SQUASH_PERIOD_MS = 240.0
-SQUASH_WIDEN = 0.5  # widening relative to the drop in height
+# A click presses the pet down at its feet and it springs straight back; every
+# click restarts it. Same curve as dsh-pet-indesktop (pet/pet_sprite.py).
+SQUASH_MS = 220
+SQUASH_HEIGHT = 0.15  # shortest: 85% of its height
+SQUASH_WIDTH = 0.10  # widest: 110% of its width
 
 
 def squash_scale(elapsed_ms: float) -> tuple[float, float] | None:
     """(width, height) scale `elapsed_ms` after a click, None when done."""
     if elapsed_ms < 0 or elapsed_ms >= SQUASH_MS:
         return None
-    amount = SQUASH_DEPTH * exp(-elapsed_ms / SQUASH_DECAY_MS) * cos(2 * pi * elapsed_ms / SQUASH_PERIOD_MS)
-    return 1 + amount * SQUASH_WIDEN, 1 - amount
+    pulse = sin(pi * elapsed_ms / SQUASH_MS)
+    return 1 + SQUASH_WIDTH * pulse, 1 - SQUASH_HEIGHT * pulse

@@ -955,10 +955,8 @@ final class PetController: NSObject {
 
     /// Report which part of the pet was clicked; the daemon reacts.
     func handleClick(at point: NSPoint, clickCount: Int) {
-        if clickCount >= 2 {
-            report("input", ["type": "double-click"])
-            return
-        }
+        // Every click reacts on its own, including the second of a quick
+        // pair, as in dsh-pet-indesktop.
         let rect = petRect()
         let relativeX = max(0, point.x - rect.minX)
         let relativeY = max(0, point.y - rect.minY)

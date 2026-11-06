@@ -30,7 +30,6 @@ export class AnimationModel {
     this.activityMap = { ...manifest.workingActivityMap }
     this.idleMicroClips = (manifest.idleMicroClips ?? []).filter((name) => this.clips.has(name))
     this.idleMicroIntervals = manifest.idleMicroIntervalsMs ?? { quiet: [20000, 40000], normal: [8000, 15000], lively: [3000, 6000] }
-    this.cooldownMs = Number(manifest.interactionCooldownMs) || 1200
     const pick = (names) => (names ?? []).filter((name) => this.clips.has(name))
     this.interactionVariants = Object.fromEntries(Object.entries(manifest.interactionVariants ?? {}).map(([k, v]) => [k, pick(v)]))
     this.annoyedClips = this.interactionVariants.annoyed ?? []
@@ -127,11 +126,8 @@ export class AnimationModel {
   playInteraction(name, now) {
     if (!this.interactionClips.has(name) || this.pulseState !== null) return false
     if (DRAG_CLIPS.has(this.overlayClip)) return false
-    // An annoyed reaction may cut into a running one; others wait their turn.
-    if (!this.annoyedClips.includes(name)) {
-      if (this.interactionClips.has(this.overlayClip)) return false
-      if (this.lastInteractionAt !== null && now - this.lastInteractionAt < this.cooldownMs) return false
-    }
+    // Every click cuts in with its reaction, as in dsh-pet-indesktop; rapid
+    // clicks turn annoyed (pickInteraction) rather than being ignored.
     if (!this.playOverlay(name)) return false
     this.lastInteractionAt = now
     return true
